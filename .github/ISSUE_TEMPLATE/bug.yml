@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible Gaugelet problem
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before submitting
+      options:
+        - label: I installed Gaugelet in /Applications, not from the DMG.
+          required: true
+        - label: I checked existing issues for the same problem.
+          required: true
+        - label: I removed secrets, account details, and private usage data from logs and screenshots.
+          required: true
+  - type: input
+    attributes:
+      label: Gaugelet version
+      placeholder: 1.0.0 (1)
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 15.6, MacBook Pro M3
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include the visible result and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open Gaugelet...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Usage state
+      options:
+        - Live
+        - Stale
+        - Unavailable
+        - Signed out
+        - Demo
+        - Not related to usage data
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only relevant output. Do not include tokens, usernames, email addresses, or full home-directory paths.
+      render: shell

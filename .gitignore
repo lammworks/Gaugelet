@@ -1,0 +1,13 @@
+.build/
+build/
+DerivedData/
+.DS_Store
+*.xcuserstate
+__pycache__/
+*.pyc
+.release-private/
+*.sparkle-private-key
+*.sparkle-private-key.*
+*.age
+*.p8
+*.p12
