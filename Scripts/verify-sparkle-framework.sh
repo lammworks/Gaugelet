@@ -28,8 +28,8 @@ done < <(/usr/bin/find "${FRAMEWORK}" -type l -print | /usr/bin/sort)
 INFO_PLIST="${FRAMEWORK}/Resources/Info.plist"
 [[ -f "${INFO_PLIST}" ]] || fail "Sparkle framework is missing Resources/Info.plist"
 SPARKLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}")"
-[[ "${SPARKLE_VERSION}" == "2.9.5" ]] \
-    || fail "embedded Sparkle version is ${SPARKLE_VERSION}, expected 2.9.5"
+[[ "${SPARKLE_VERSION}" == "2.9.6" ]] \
+    || fail "embedded Sparkle version is ${SPARKLE_VERSION}, expected 2.9.6"
 
 MACHO_COUNT=0
 while IFS= read -r -d '' item; do

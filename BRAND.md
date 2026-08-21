@@ -45,4 +45,4 @@ Gaugelet is independent software and is not affiliated with, endorsed by, or spo
 
 ## Current reservation status
 
-Domain, repository, social-handle, and formal trademark reservations are release gates, not completed facts merely because a name appears in this repository. See [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md).
+Gaugelet may seek formal protection for its name and identity in the future. A name appearing in this repository does not imply a registered trademark.

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { BrandMark, SiteFooter, SiteHeader } from "./components/SiteChrome";
+import { InteractiveGaugeletDemo } from "./components/InteractiveGaugeletDemo";
 
 export const metadata: Metadata = {
   title: "See your Codex and ChatGPT allowance before you hit the limit",
@@ -36,83 +37,38 @@ export default function Home() {
     <main>
       <SiteHeader />
 
-      <section className="hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">
-            <span className="status-dot" aria-hidden="true" />
-            Gaugelet 1.0 · macOS 14+
+      <section className="launch-hero" id="top">
+        <div className="launch-copy">
+          <p className="launch-kicker">ChatGPT + Codex allowance</p>
+          <h1>Use your plan deliberately.</h1>
+          <p className="launch-lede">
+            A native macOS menu-bar app that shows your ChatGPT and Codex allowance at a glance—so you can tune the model, reasoning, and pace before the work stops.
           </p>
-          <h1>Know what is left.<br />Keep the work moving.</h1>
-          <p className="lede">
-            A native menu-bar gauge for the Codex and ChatGPT allowance exposed
-            through Codex on your Mac—so you can tune the model, reasoning, and
-            pace before a hard limit stops the job.
-          </p>
-          <div className="hero-actions">
+          <div className="launch-actions">
             <a
-              className="button button-primary"
+              className="mac-download-button"
               href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"
             >
-              Download Gaugelet 1.0
-              <span aria-hidden="true">↓</span>
+              <span className="apple-mark" aria-hidden="true"></span>
+              <span>Download for Mac</span>
             </a>
-            <a className="button button-secondary" href="/install">
-              Read install guide
-            </a>
+            <a className="install-link" href="/install">How to install <span aria-hidden="true">→</span></a>
           </div>
-          <p className="hero-note">
-            Free and MIT licensed · Native for Apple silicon · Private by default · Five-minute refresh
-          </p>
+          <div className="hero-feature-row" aria-label="Gaugelet benefits">
+            <div><span className="feature-symbol" aria-hidden="true">01</span><p><strong>ChatGPT + Codex</strong><small>Allowance at a glance</small></p></div>
+            <div><span className="feature-symbol" aria-hidden="true">02</span><p><strong>Five-minute refresh</strong><small>Stays reliably current</small></p></div>
+            <div><span className="feature-symbol" aria-hidden="true">03</span><p><strong>No analytics</strong><small>Private by design</small></p></div>
+          </div>
+          <p className="launch-trust">Free · Native for Apple silicon · macOS 14+ · Private by design</p>
         </div>
 
-        <div className="app-stage" aria-label="Gaugelet app preview">
-          <div className="menu-bar-chip">
-            <span className="mini-gauge" aria-hidden="true" />
-            <span>42%</span>
-          </div>
-          <div className="app-window">
-            <div className="window-topline">
-              <div className="window-brand">
-                <BrandMark compact />
-                <div>
-                  <strong>Gaugelet</strong>
-                  <small>Codex + ChatGPT allowance</small>
-                </div>
-              </div>
-              <span className="live-pill">LIVE</span>
-            </div>
-
-            <div className="limit-stack">
-              {limits.map((limit) => (
-                <article className="limit-card" key={limit.label}>
-                  <div className="limit-heading">
-                    <span>{limit.label}</span>
-                    <strong>{limit.remaining}% <small>left</small></strong>
-                  </div>
-                  <div className="meter" aria-hidden="true">
-                    <span style={{ width: `${limit.remaining}%` }} />
-                  </div>
-                  <p>{limit.reset}</p>
-                </article>
-              ))}
-            </div>
-
-            <div className="window-footer">
-              <span>Updated just now</span>
-              <span aria-hidden="true">↻</span>
-            </div>
-          </div>
-          <p className="truth-note">
-            <span aria-hidden="true">i</span>
-            OpenAI’s enforced limits remain authoritative.
-          </p>
-        </div>
+        <InteractiveGaugeletDemo />
       </section>
 
       <section className="signal-section section-shell">
         <div className="section-heading">
           <p className="section-kicker">Your plan, at a glance</p>
-          <h2>The familiar counters, without breaking your flow.</h2>
+          <h2>Stay ahead of the limit.</h2>
           <p>
             Gaugelet keeps the overall, weekly, and special-model windows for your
             ChatGPT plan in stable positions when Codex returns them. Missing windows
@@ -256,7 +212,7 @@ export default function Home() {
           <p>
             The local Codex reading and ChatGPT’s UI are separate views and can drift—sometimes
             materially during heavy use. Gaugelet can move faster or slower. OpenAI’s enforced
-            limit is always the authority.
+            limits remain authoritative.
           </p>
         </aside>
       </section>

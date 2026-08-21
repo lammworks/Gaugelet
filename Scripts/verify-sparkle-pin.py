@@ -8,8 +8,8 @@ import re
 import sys
 
 
-EXPECTED_VERSION = "2.9.5"
-EXPECTED_REVISION = "79bc9e872948e47877e76f194cb0c8e0412b0b90"
+EXPECTED_VERSION = "2.9.6"
+EXPECTED_REVISION = "ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a"
 EXPECTED_LOCATION = "https://github.com/sparkle-project/Sparkle"
 
 
@@ -28,11 +28,11 @@ if not manifest.is_file() or not resolved.is_file():
 manifest_text = manifest.read_text(encoding="utf-8")
 exact_pattern = re.compile(
     r"\.package\s*\(\s*url:\s*\"https://github\.com/sparkle-project/Sparkle\"\s*,"
-    r"\s*exact:\s*\"2\.9\.5\"\s*\)",
+    r"\s*exact:\s*\"2\.9\.6\"\s*\)",
     re.DOTALL,
 )
 if exact_pattern.search(manifest_text) is None:
-    fail("Package.swift must pin Sparkle with exact: \"2.9.5\"")
+    fail("Package.swift must pin Sparkle with exact: \"2.9.6\"")
 
 try:
     resolved_data = json.loads(resolved.read_text(encoding="utf-8"))
@@ -51,7 +51,7 @@ if state.get("version") != EXPECTED_VERSION:
     fail(f"Sparkle pin version is {state.get('version')!r}, expected {EXPECTED_VERSION!r}")
 if state.get("revision") != EXPECTED_REVISION:
     fail(
-        f"Sparkle 2.9.5 revision is {state.get('revision')!r}, "
+        f"Sparkle 2.9.6 revision is {state.get('revision')!r}, "
         f"expected {EXPECTED_REVISION!r}"
     )
 

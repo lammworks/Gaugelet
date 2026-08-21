@@ -12,7 +12,7 @@ Gaugelet is a free, native macOS menu-bar app for people who adjust Codex model,
 
 > Gaugelet 1.0 is ad-hoc signed and is not notarized by Apple. The first launch requires macOS **Privacy & Security → Open Anyway**. Verify the release checksum before opening it.
 
-<!-- Release asset path: replace only if the approved 1.0 screenshot is stored elsewhere. -->
+<!-- High-resolution Gaugelet product screenshot. -->
 ![Gaugelet showing Codex and ChatGPT allowance windows in the macOS menu bar](website/public/images/gaugelet-dashboard.png)
 
 ## The useful view

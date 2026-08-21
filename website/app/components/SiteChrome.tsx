@@ -1,9 +1,11 @@
 import Link from "next/link";
 
+/* eslint-disable @next/next/no-img-element -- The fixed local product icon must preserve its exact transparent pixels. */
+
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <span className={`brand-mark${compact ? " compact" : ""}`} aria-hidden="true">
-      <span />
+      <img src="/images/gaugelet-icon.png" alt="" />
     </span>
   );
 }
@@ -17,8 +19,15 @@ export function SiteHeader() {
       </Link>
       <nav aria-label="Primary navigation">
         <Link href="/install">Install</Link>
-        <Link href="/support">Support</Link>
-        <a href="https://github.com/lammworks/Gaugelet">GitHub</a>
+        <Link href="/privacy">Privacy</Link>
+        <a href="https://github.com/lammworks/Gaugelet">Source</a>
+        <a
+          className="header-download"
+          href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"
+        >
+          <span className="apple-mark" aria-hidden="true"></span>
+          Download for Mac
+        </a>
       </nav>
     </header>
   );

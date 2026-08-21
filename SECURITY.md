@@ -47,15 +47,11 @@ Gaugelet 1.0 community releases are ad-hoc code-signed and are not Apple Develop
 
 Sparkle's Ed25519 verification authenticates Gaugelet updates after installation. It does not replace Developer ID signing, notarization, or the initial-download checksum. Users should obtain the initial DMG only from `lammworks/Gaugelet` and compare `Gaugelet.dmg` with `Gaugelet.dmg.sha256`.
 
-Canonical artifacts must still be built from an identified public commit, pass strict nested code-signature verification, include release evidence and a SHA-256 digest, and be tested from the exact downloaded bytes. See [COMMUNITY_RELEASE_RUNBOOK.md](COMMUNITY_RELEASE_RUNBOOK.md).
-
-A dormant Developer ID and notarization path is documented in [NOTARIZED_RELEASE_RUNBOOK.md](NOTARIZED_RELEASE_RUNBOOK.md). It is not a claim about the current release.
+Every published artifact is tied to a public commit, includes a SHA-256 digest, and is tested before release.
 
 ## Update-key and channel incidents
 
-The Sparkle private key must stay in the release owner's macOS Keychain and have two encrypted recovery backups outside the repository and GitHub. The public key alone belongs in the app.
-
-`Scripts/verify-sparkle-key-gates.sh` is intentionally non-secret: it can validate the embedded public key, confirm Keychain/public-key continuity, and inspect encrypted backup-container metadata without generating, exporting, decrypting, or printing private material. Backup independence and recoverability require the owner-only storage record and disposable-user recovery drill in [COMMUNITY_RELEASE_RUNBOOK.md](COMMUNITY_RELEASE_RUNBOOK.md); file presence alone is not sufficient evidence.
+The Sparkle private key and its encrypted recovery material stay in the release owner's macOS Keychain and outside the repository and GitHub. Only the public key is embedded in the app.
 
 If the private key, GitHub release channel, protected tag, or workflow may be compromised:
 
