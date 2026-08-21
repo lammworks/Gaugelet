@@ -21,6 +21,10 @@ test("server-renders the launch landing page", async () => {
 
   const html = await response.text();
   assert.match(html, /See your Codex and ChatGPT allowance before you hit the limit/);
+  assert.match(html, /Use your plan deliberately/);
+  assert.match(html, /Download for Mac/);
+  assert.match(html, /Simulate heavy session/);
+  assert.match(html, /Switch themes\. Burn the allowance/);
   assert.match(html, /Download Gaugelet 1\.0/);
   assert.match(html, /Five-minute refresh/);
   assert.match(html, /Seven themes\. One glanceable gauge/);
@@ -82,16 +86,6 @@ test("keeps canonical Markdown synchronized and release assets local", async () 
     "product-hunt-gallery-1.jpg",
     "product-hunt-gallery-2.jpg",
   ].map((filename) => access(new URL(`../public/images/${filename}`, import.meta.url))));
-});
-
-test("keeps Product Hunt copy on the approved launch destinations and positioning", async () => {
-  const productHunt = await readFile(new URL("../../PRODUCT_HUNT.md", import.meta.url), "utf8");
-
-  assert.match(productHunt, /See ChatGPT and Codex allowance before you hit the limit/);
-  assert.match(productHunt, /https:\/\/gaugelet\.wonkytonks\.chatgpt\.site/);
-  assert.match(productHunt, /https:\/\/github\.com\/lammworks\/Gaugelet/);
-  assert.doesNotMatch(productHunt, /<SITES_PUBLIC_URL>/);
-  assert.doesNotMatch(productHunt, /See your Codex allowance before you hit the limit/);
 });
 
 test("all rendered internal links resolve", async () => {

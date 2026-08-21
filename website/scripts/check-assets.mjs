@@ -10,7 +10,7 @@ const expected = {
 };
 
 const expectedPng = {
-  "gaugelet-dashboard.png": [336, 494],
+  "gaugelet-dashboard.png": [1090, 1443],
 };
 
 function pngDimensions(buffer) {
