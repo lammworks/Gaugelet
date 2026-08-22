@@ -69,6 +69,20 @@ for (const route of [
   });
 }
 
+for (const route of [
+  ["/gallery-themes", "Make the gauge feel at home"],
+  ["/gallery-notification", "Get the warning before the work stops"],
+]) {
+  test(`server-renders the Product Hunt canvas at ${route[0]}`, async () => {
+    const response = await render(route[0]);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, new RegExp(route[1], "i"));
+    assert.match(html, /src="\/images\/gaugelet-menubar\.svg"/);
+    assert.match(html, /src="\/images\/gaugelet-icon\.png"/);
+  });
+}
+
 test("keeps canonical Markdown synchronized and release assets local", async () => {
   const [generated, install, privacy] = await Promise.all([
     readFile(new URL("../app/content.generated.ts", import.meta.url), "utf8"),
@@ -88,6 +102,8 @@ test("keeps canonical Markdown synchronized and release assets local", async () 
     "product-hunt-thumbnail.jpg",
     "product-hunt-gallery-1.jpg",
     "product-hunt-gallery-2.jpg",
+    "product-hunt-gallery-3-themes.jpg",
+    "product-hunt-gallery-4-notification.jpg",
   ].map((filename) => access(new URL(`../public/images/${filename}`, import.meta.url))));
 });
 
