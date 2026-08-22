@@ -10,10 +10,10 @@
 
 Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Codex allowance**. See the windows that matter before you choose a bigger model, deeper reasoning, or a faster pace—and before the work suddenly stops.
 
-[**Download for Mac →**](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg) · [Official site](https://Gaugelet.lammworks.com) · [See all releases](https://github.com/lammworks/Gaugelet/releases) · [Read the install guide](INSTALL.md)
+[**Download for Mac →**](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg) · [Official site](https://Gaugelet.lammworks.com) · [See all releases](https://github.com/lammworks/Gaugelet/releases) · [Read the install guide](INSTALL.md)
 
 <p>
-  <a href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"><strong> Download Gaugelet 1.0</strong></a>
+  <a href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg"><strong> Download Gaugelet for Mac</strong></a>
 </p>
 
 > Gaugelet 1.0 is a free community release for Apple-silicon Macs. It is ad-hoc signed, not notarized by Apple, and may require **System Settings → Privacy & Security → Open Anyway** on first launch.
@@ -27,7 +27,7 @@ Gaugelet gives you a quiet little signal before you commit to the heavy option. 
 - **ChatGPT + Codex allowance at a glance** — see the usage windows returned by your local Codex session.
 - **The important counters stay visible** — overall, weekly, and special-model windows appear when they are available, with additional returned windows preserved too.
 - **Refreshes every five minutes** — current enough for decisions, honest enough not to pretend it is real-time.
-- **Seven beautiful themes** — light, blue, green, amber, rose, purple, and Dracula, with a Core blue identity for macOS system surfaces.
+- **Seven beautiful in-app themes** — Core, Dracula, Ember, Moss, Monochrome, 8-Bit, and Pride, paired with a clean adaptive menu-bar gauge.
 - **Native for Apple silicon** — made for the Mac, lives in the menu bar, and stays out of your way.
 - **Private by design** — no Gaugelet account, analytics, advertising, usage-history database, or LammWorks backend.
 
@@ -52,7 +52,7 @@ Gaugelet does not use the OpenAI Platform Usage API. That API measures API-platf
 ## Install in five minutes
 
 1. Install the official Codex CLI, run `codex`, and complete sign-in.
-2. Download [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg) and [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg.sha256). Verify the checksum before opening the app.
+2. Download [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg) and [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg.sha256). Verify the checksum before opening the app.
 3. Open the DMG and drag Gaugelet to **Applications**. Eject the DMG afterward.
 4. Open Gaugelet from Applications. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway**.
 5. Click the Gaugelet icon in the menu bar, confirm the source is live, and optionally enable Launch at Login and notifications in Settings.

@@ -21,8 +21,8 @@ esac
 [[ -f "${INFO_PLIST}" ]] || fail "missing ${INFO_PLIST}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INFO_PLIST}")"
-[[ "${VERSION}" == "1.0.0" && "${BUILD}" == "1" ]] \
-    || fail "Gaugelet 1.0 release tooling expects 1.0.0 (1); found ${VERSION} (${BUILD})"
+[[ "${VERSION}" == "1.0.1" && "${BUILD}" == "2" ]] \
+    || fail "Gaugelet 1.0.1 release tooling expects 1.0.1 (2); found ${VERSION} (${BUILD})"
 
 if [[ "${ARTIFACT_KIND}" == "community-release" ]]; then
     "${SCRIPT_DIR}/verify-sparkle-key-gates.sh" --configuration-only

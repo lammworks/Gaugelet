@@ -207,7 +207,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
     }
 
     private static var clientVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1"
     }
 
     static func parseSnapshot(from responseData: Data, now: Date = Date()) throws -> UsageSnapshot {

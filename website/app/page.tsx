@@ -47,7 +47,7 @@ export default function Home() {
           <div className="launch-actions">
             <a
               className="mac-download-button"
-              href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"
+              href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg"
             >
               <span className="apple-mark" aria-hidden="true"></span>
               <span>Download for Mac</span>
@@ -109,11 +109,11 @@ export default function Home() {
             <article className="mac-feature-card theme-feature">
               <div className="feature-copy">
                 <span className="feature-index">01 · Make it yours</span>
-                <h3>Seven themes. One glanceable gauge.</h3>
+                <h3>Seven in-app themes. One clear gauge.</h3>
                 <p>
                   Choose a look that fits your desktop—from quiet Core and Mono to
-                  Dark Dracula, 8-Bit, and Pride. The menu-bar icon and in-app accents
-                  update together while the signed system icon stays consistently Gaugelet.
+                  Dark Dracula, 8-Bit, and Pride. The in-app icon and accents update
+                  together while the menu bar keeps a clean adaptive half-gauge.
                 </p>
               </div>
               <div className="theme-rack" aria-label="Gaugelet themes">
@@ -276,7 +276,7 @@ export default function Home() {
         <h2>See the limit before it becomes the problem.</h2>
         <p>Free, open source, private by default, and built for Apple-silicon Macs running macOS 14 or later.</p>
         <div className="hero-actions">
-          <a className="button button-primary" href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg">
+          <a className="button button-primary" href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg">
             Download Gaugelet 1.0 <span aria-hidden="true">↓</span>
           </a>
           <a className="button button-secondary" href="https://github.com/lammworks/Gaugelet">View source</a>

@@ -28,6 +28,28 @@ final class GaugeletThemeTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testMenuBarUsesOneCompactAdaptiveGaugeAcrossThemesAndStates() throws {
+        let live = GaugeletAppIcon.menuBarImage(
+            for: .core,
+            mode: .live,
+            percent: 57,
+            isDark: false
+        )
+        let blocked = GaugeletAppIcon.menuBarImage(
+            for: .pride,
+            mode: .blocked,
+            percent: 0,
+            isDark: true
+        )
+
+        XCTAssertTrue(live === blocked)
+        XCTAssertTrue(live.isTemplate)
+        XCTAssertEqual(live.size.width, 16, accuracy: 0.001)
+        XCTAssertEqual(live.size.height, 16, accuracy: 0.001)
+        XCTAssertFalse(try XCTUnwrap(live.tiffRepresentation).isEmpty)
+    }
+
     func testAccentForegroundsAndProminentButtonLabelsMaintainReadableContrast() {
         for style in GaugeletIconStyle.allCases {
             let palette = style.accentPalette

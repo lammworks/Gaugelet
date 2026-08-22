@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             isDark: isStatusBarDark(button)
         )
         button.imagePosition = .imageLeading
+        button.imageScaling = .scaleProportionallyDown
         button.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
         button.target = self
         button.action = #selector(statusItemPressed(_:))
