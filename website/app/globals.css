@@ -1354,10 +1354,11 @@ body {
   box-shadow: 0 16px 33px rgba(0, 10, 26, .34);
 }
 
-.demo-menu-chip img {
-  width: 34px;
-  height: 34px;
+.demo-menu-chip .menu-bar-glyph {
+  width: 24px;
+  height: 24px;
   object-fit: contain;
+  filter: invert(1);
 }
 
 .demo-menu-chip strong {
