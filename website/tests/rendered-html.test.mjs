@@ -29,6 +29,7 @@ test("server-renders the launch landing page", async () => {
   assert.match(html, /Five-minute refresh/);
   assert.match(html, /Seven in-app themes\. One clear gauge/);
   assert.match(html, /menu bar keeps a clean adaptive half-gauge/);
+  assert.match(html, /src="\/images\/gaugelet-menubar\.svg"/);
   assert.match(html, /Made for Apple silicon/);
   assert.match(html, /Local-first privacy/);
   assert.match(html, /Independent maker in Panama/);
@@ -81,6 +82,7 @@ test("keeps canonical Markdown synchronized and release assets local", async () 
   await Promise.all([
     "gaugelet-dashboard.png",
     "gaugelet-icon.png",
+    "gaugelet-menubar.svg",
     "launch-orbit-background.png",
     "gaugelet-social.jpg",
     "product-hunt-thumbnail.jpg",

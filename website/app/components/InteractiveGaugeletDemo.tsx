@@ -178,7 +178,11 @@ export function InteractiveGaugeletDemo() {
         </div>
 
         <div className="demo-menu-chip" aria-label={`${allowance}% allowance left`}>
-          <img src="/images/gaugelet-icon.png" alt="" />
+          <img
+            className="menu-bar-glyph"
+            src="/images/gaugelet-menubar.svg"
+            alt=""
+          />
           <strong>{allowance}%</strong>
         </div>
 
