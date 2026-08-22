@@ -7,6 +7,8 @@ const expected = {
   "product-hunt-thumbnail.jpg": [240, 240],
   "product-hunt-gallery-1.jpg": [1270, 760],
   "product-hunt-gallery-2.jpg": [1270, 760],
+  "product-hunt-gallery-3-themes.jpg": [1270, 760],
+  "product-hunt-gallery-4-notification.jpg": [1270, 760],
 };
 
 const expectedPng = {
