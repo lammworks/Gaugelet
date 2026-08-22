@@ -4,6 +4,10 @@
 
 ![Gaugelet — ChatGPT and Codex allowance in your Mac menu bar](website/public/images/gaugelet-social.jpg)
 
+<p>
+  <a href="https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"><img src="https://img.shields.io/badge/%E2%98%95%20Buy%20me%20a%20coffee-Support%20Gaugelet-F5B841?style=flat-square&logo=paypal&logoColor=white" alt="Buy me a coffee and support Gaugelet"></a>
+</p>
+
 Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Codex allowance**. See the windows that matter before you choose a bigger model, deeper reasoning, or a faster pace—and before the work suddenly stops.
 
 [**Download for Mac →**](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg) · [Official site](https://Gaugelet.lammworks.com) · [See all releases](https://github.com/lammworks/Gaugelet/releases) · [Read the install guide](INSTALL.md)
@@ -55,13 +59,15 @@ Gaugelet does not use the OpenAI Platform Usage API. That API measures API-platf
 
 See [INSTALL.md](INSTALL.md) for the complete installation and troubleshooting path. Gaugelet does not require Full Disk Access, Accessibility, Screen Recording, or access to your Documents, Desktop, or Downloads.
 
-## A small app from an independent developer
+## Keep Gaugelet moving
 
 Gaugelet is built and maintained independently by LammWorks. It is free, open source, and intentionally focused: one small Mac app that helps you use the plan you already pay for with a little more intention.
 
-If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanent place in your menu bar—[buy me a coffee](https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4). It helps fund the time spent maintaining releases, testing updates, and keeping the experience polished.
+If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanent place in your menu bar—your coffee helps keep the releases, testing, and polish moving.
 
-**[☕ Buy me a coffee →](https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4)**
+<p align="center">
+  <a href="https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"><img src="https://img.shields.io/badge/%E2%98%95%20Buy%20me%20a%20coffee-Support%20independent%20Mac%20software-F5B841?style=for-the-badge&logo=paypal&logoColor=white" alt="Buy me a coffee and support independent Mac software"></a>
+</p>
 
 ## How it works
 
