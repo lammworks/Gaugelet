@@ -89,8 +89,8 @@ PACKAGED_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${APP_
 "${SCRIPT_DIR}/verify-sparkle-key-gates.sh" --configuration-only --plist "${APP_INFO}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_INFO}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_INFO}")"
-[[ "${VERSION}" == "1.0.0" && "${BUILD}" == "1" ]] \
-    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.0.0 (1)"
+[[ "${VERSION}" == "1.0.1" && "${BUILD}" == "2" ]] \
+    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.0.1 (2)"
 [[ "$(/usr/bin/lipo -archs "${EXECUTABLE}")" == "arm64" ]] \
     || fail "Gaugelet main executable must contain only arm64"
 RPATHS="$(/usr/bin/otool -l "${EXECUTABLE}" \
@@ -132,6 +132,12 @@ for extended_attribute in com.apple.FinderInfo com.apple.ResourceFork; do
     fi
 done
 [[ -s "${APP_PATH}/Contents/Resources/AppIcon.icns" ]] || fail "compiled AppIcon.icns is missing"
+PACKAGED_MENU_BAR_ICON="${APP_PATH}/Contents/Resources/GaugeletMenuBar.svg"
+SOURCE_MENU_BAR_ICON="${ROOT_DIR}/Assets/GaugeletMenuBar.svg"
+[[ -s "${PACKAGED_MENU_BAR_ICON}" ]] || fail "packaged menu-bar SVG is missing"
+/usr/bin/cmp "${SOURCE_MENU_BAR_ICON}" "${PACKAGED_MENU_BAR_ICON}" \
+    || fail "packaged menu-bar SVG differs from the committed source"
+/usr/bin/xmllint --noout "${PACKAGED_MENU_BAR_ICON}"
 ICON_RENDER="${RELEASE_ROOT}/.app-icon-verification.tmp.$$.png"
 /usr/bin/sips -s format png "${APP_PATH}/Contents/Resources/AppIcon.icns" \
     --out "${ICON_RENDER}" >/dev/null

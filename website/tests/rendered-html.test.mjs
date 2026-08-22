@@ -27,7 +27,8 @@ test("server-renders the launch landing page", async () => {
   assert.match(html, /Switch themes\. Burn the allowance/);
   assert.match(html, /Download Gaugelet 1\.0/);
   assert.match(html, /Five-minute refresh/);
-  assert.match(html, /Seven themes\. One glanceable gauge/);
+  assert.match(html, /Seven in-app themes\. One clear gauge/);
+  assert.match(html, /menu bar keeps a clean adaptive half-gauge/);
   assert.match(html, /Made for Apple silicon/);
   assert.match(html, /Local-first privacy/);
   assert.match(html, /Independent maker in Panama/);

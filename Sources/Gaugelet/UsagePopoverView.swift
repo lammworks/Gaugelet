@@ -830,7 +830,7 @@ private struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
-                    Text("Themes change Gaugelet’s in-app and menu-bar appearance. Finder and notifications always use the stable Core icon.")
+                    Text("Themes change Gaugelet’s in-app appearance. The menu bar uses a clean adaptive gauge; Finder and notifications use the stable Core icon.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -17,10 +17,10 @@ Complete sign-in in Codex. A ChatGPT browser session by itself is not enough. Ga
 
 ## 2. Download and verify
 
-Download both files from the versioned release:
+Download both files from the latest release:
 
-- [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg)
-- [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg.sha256)
+- [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg)
+- [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg.sha256)
 
 Keep both filenames unchanged in the same folder, then run:
 

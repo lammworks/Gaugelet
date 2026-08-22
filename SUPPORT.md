@@ -22,7 +22,7 @@ Gaugelet 1.0 is ad-hoc signed and not notarized. A first launch is expected to b
 3. In the Security section, choose **Open Anyway** for Gaugelet.
 4. Authenticate and confirm **Open**.
 
-Do not remove quarantine with Terminal commands. If **Open Anyway** is absent, confirm the app is in `/Applications`, try opening it again, and return immediately to Privacy & Security. Re-download only from the [canonical release](https://github.com/lammworks/Gaugelet/releases/tag/v1.0.0) if the checksum does not match.
+Do not remove quarantine with Terminal commands. If **Open Anyway** is absent, confirm the app is in `/Applications`, try opening it again, and return immediately to Privacy & Security. Re-download only from the [canonical latest release](https://github.com/lammworks/Gaugelet/releases/latest) if the checksum does not match.
 
 Gaugelet does not require Full Disk Access, Accessibility access, Screen Recording, or access to Documents, Desktop, or Downloads. Decline an unexpected broad privacy request and report it.
 

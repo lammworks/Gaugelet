@@ -179,8 +179,17 @@ enum GaugeletSystemIcon {
 }
 
 enum GaugeletAppIcon {
-    private static let menuBarCanvasSize: CGFloat = 32
-    private static var menuBarImageCache = [MenuBarIconCacheKey: NSImage]()
+    private static let menuBarIconSize = NSSize(width: 16, height: 16)
+    private static let menuBarGlyph: NSImage = {
+        if let url = Bundle.main.url(forResource: "GaugeletMenuBar", withExtension: "svg"),
+           let image = NSImage(contentsOf: url) {
+            image.size = menuBarIconSize
+            image.isTemplate = true
+            return image
+        }
+
+        return renderMenuBarGlyph()
+    }()
 
     static func image(for style: GaugeletIconStyle) -> NSImage? {
         let resourceNames = [
@@ -204,257 +213,49 @@ enum GaugeletAppIcon {
     }
 
     static func menuBarImage(
-        for style: GaugeletIconStyle,
-        mode: GaugeletMenuBarIconMode,
-        percent: Int? = nil,
-        isDark: Bool
+        for _: GaugeletIconStyle,
+        mode _: GaugeletMenuBarIconMode,
+        percent _: Int? = nil,
+        isDark _: Bool
     ) -> NSImage {
-        let clamped = percent.map { min(max($0, 0), 100) } ?? 0
-        let key = MenuBarIconCacheKey(
-            style: style,
-            mode: mode,
-            percent: clamped,
-            isDark: isDark
-        )
-
-        if let cached = menuBarImageCache[key] {
-            return cached
-        }
-
-        let image = renderMenuBarIcon(
-            for: style,
-            mode: mode,
-            percent: clamped,
-            isDark: isDark
-        )
-        menuBarImageCache[key] = image
-        return image
+        menuBarGlyph
     }
 
-    static func invalidateMenuBarIconCache() {
-        menuBarImageCache.removeAll()
-    }
-
-    private static func renderMenuBarIcon(
-        for style: GaugeletIconStyle,
-        mode: GaugeletMenuBarIconMode,
-        percent: Int,
-        isDark: Bool
-    ) -> NSImage {
-        let renderedImage = NSImage(
-            size: NSSize(width: menuBarCanvasSize, height: menuBarCanvasSize)
-        )
+    private static func renderMenuBarGlyph() -> NSImage {
+        let renderedImage = NSImage(size: menuBarIconSize)
         renderedImage.lockFocus()
         defer { renderedImage.unlockFocus() }
 
         guard let context = NSGraphicsContext.current?.cgContext else {
-            return image(for: style) ?? renderedImage
+            renderedImage.isTemplate = true
+            return renderedImage
         }
 
-        context.clear(CGRect(origin: .zero, size: CGSize(width: menuBarCanvasSize, height: menuBarCanvasSize))
-)
-
-        let accent = modeColor(for: style, isDark: isDark, mode: mode)
-        let neutral = isDark ? NSColor.white.withAlphaComponent(0.36) : NSColor.black.withAlphaComponent(0.35)
-        let backgroundColor = isDark
-            ? NSColor(calibratedWhite: 0.21, alpha: 1.0)
-            : NSColor(calibratedWhite: 0.95, alpha: 1.0)
-        let trackColor = isDark
-            ? NSColor(white: 1, alpha: 0.17)
-            : NSColor(white: 0, alpha: 0.18)
-        let textColor = isDark ? NSColor(white: 1, alpha: 0.9) : NSColor(white: 0.14, alpha: 0.85)
-
-        let cardInset: CGFloat = 2.5
-        let cardRect = CGRect(
-            x: cardInset,
-            y: cardInset,
-            width: menuBarCanvasSize - 2 * cardInset,
-            height: menuBarCanvasSize - 2 * cardInset
-        )
-        let cardRadius = cardRect.height * 0.24
-        let cardPath = NSBezierPath(
-            roundedRect: cardRect,
-            xRadius: cardRadius,
-            yRadius: cardRadius
-        )
-        backgroundColor.setFill()
-        cardPath.fill()
-
-        cardColor(for: accent, alpha: 0.22).setFill()
-        NSBezierPath(
-            roundedRect: cardRect.insetBy(dx: 1.6, dy: 1.6),
-            xRadius: cardRadius - 1.0,
-            yRadius: cardRadius - 1.0
-        ).fill()
-
-        let center = CGPoint(
-            x: menuBarCanvasSize / 2,
-            y: menuBarCanvasSize / 2
-        )
-        let radius = cardRect.width * 0.34
-        let lineWidth = cardRect.width * 0.12
-
-        context.setLineWidth(lineWidth)
+        context.clear(CGRect(origin: .zero, size: menuBarIconSize))
+        context.setStrokeColor(NSColor.black.cgColor)
+        context.setFillColor(NSColor.black.cgColor)
+        context.setLineWidth(1.5)
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        context.setStrokeColor(trackColor.cgColor)
 
-        let trackPath = CGMutablePath()
-        trackPath.addArc(
-            center: center,
-            radius: radius,
+        let arc = CGMutablePath()
+        arc.addArc(
+            center: CGPoint(x: 8, y: 6),
+            radius: 5.5,
             startAngle: 0,
-            endAngle: .pi * 2,
+            endAngle: .pi,
             clockwise: false
         )
-        context.addPath(trackPath)
-
+        context.addPath(arc)
         context.strokePath()
 
-        if mode == .unavailable || mode == .signedOut {
-            context.setStrokeColor(neutral.withAlphaComponent(0.72).cgColor)
-        } else {
-            context.setStrokeColor(accent.cgColor)
-        }
-        context.setLineWidth(lineWidth * 1.02)
-        let fillProgress = CGFloat(percent) / 100.0
-        let ringPath = CGMutablePath()
-        let startAngle = -CGFloat.pi / 2
-        let endAngle = startAngle + (2 * CGFloat.pi * fillProgress)
-        ringPath.addArc(
-            center: center,
-            radius: radius,
-            startAngle: startAngle,
-            endAngle: endAngle,
-            clockwise: false
-        )
-        context.addPath(ringPath)
-        if mode == .loading {
-            context.strokePath()
-        } else {
-            context.strokePath()
-        }
+        context.move(to: CGPoint(x: 8, y: 6))
+        context.addLine(to: CGPoint(x: 8.815, y: 9.66))
+        context.strokePath()
 
-        if mode == .loading || mode == .unavailable || mode == .signedOut {
-            let statusDot = NSBezierPath(ovalIn: CGRect(
-                x: center.x - 1.9,
-                y: center.y - 1.9,
-                width: 3.8,
-                height: 3.8
-            ))
-            (mode == .loading ? textColor : neutral).setFill()
-            statusDot.fill()
-        }
-
-        if mode == .blocked || mode == .stale {
-            let warning = NSBezierPath()
-            warning.lineWidth = 1.6
-            warning.move(to: CGPoint(
-                x: cardInset + 6,
-                y: cardRect.maxY - 6.2
-            ))
-            warning.line(to: CGPoint(
-                x: cardRect.maxX - 6,
-                y: cardInset + 6.2
-            ))
-            warning.lineCapStyle = .round
-            accent.withAlphaComponent(0.75).setStroke()
-            warning.stroke()
-        }
-
-        if mode == .stale {
-            let oldText = "s"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
-                .foregroundColor: textColor
-            ]
-            let attributed = NSAttributedString(string: oldText, attributes: attrs)
-            let textSize = attributed.size()
-            attributed.draw(
-                at: CGPoint(
-                    x: center.x - textSize.width / 2,
-                    y: center.y - textSize.height / 2 - 1
-                )
-            )
-        }
-
-        if mode == .demo {
-            let demoText = "D"
-            let demoAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold),
-                .foregroundColor: accent.withAlphaComponent(0.9)
-            ]
-            let attributedDemo = NSAttributedString(string: demoText, attributes: demoAttrs)
-            let size = attributedDemo.size()
-            attributedDemo.draw(
-                at: CGPoint(
-                    x: center.x - size.width / 2,
-                    y: center.y - size.height / 2 - 1
-                )
-            )
-        }
-
-        if mode != .loading && mode != .unavailable && mode != .signedOut {
-            let percentText = "\(percent)"
-            let percentAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 8.0, weight: .bold),
-                .foregroundColor: textColor
-            ]
-            let attributedPercent = NSAttributedString(
-                string: percentText,
-                attributes: percentAttrs
-            )
-            let size = attributedPercent.size()
-            attributedPercent.draw(
-                at: CGPoint(
-                    x: center.x - size.width / 2,
-                    y: 3.4
-                )
-            )
-        }
-
+        context.fillEllipse(in: CGRect(x: 6.8, y: 4.8, width: 2.4, height: 2.4))
+        renderedImage.isTemplate = true
         return renderedImage
-    }
-
-    private static func modeColor(
-        for style: GaugeletIconStyle,
-        isDark: Bool,
-        mode: GaugeletMenuBarIconMode
-    ) -> NSColor {
-        switch mode {
-        case .blocked, .loading:
-            return NSColor(red: 0.82, green: 0.22, blue: 0.21, alpha: 1)
-        case .unavailable, .signedOut:
-            return isDark
-                ? NSColor(white: 0.70, alpha: 1)
-                : NSColor(white: 0.38, alpha: 1)
-        case .demo:
-            return styleColor(for: style, dark: isDark)
-        case .live, .stale:
-            return styleColor(for: style, dark: isDark)
-        }
-    }
-
-    private static func styleColor(for style: GaugeletIconStyle, dark: Bool) -> NSColor {
-        let palette = style.accentPalette
-        let rgb = dark ? palette.darkRGB : palette.lightRGB
-        return NSColor(
-            red: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
-        )
-    }
-
-    private static func cardColor(for accent: NSColor, alpha: CGFloat) -> NSColor {
-        accent.withAlphaComponent(alpha)
-    }
-
-    private struct MenuBarIconCacheKey: Hashable {
-        let style: GaugeletIconStyle
-        let mode: GaugeletMenuBarIconMode
-        let percent: Int
-        let isDark: Bool
     }
 }
 
