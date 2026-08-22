@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
+// Mirrors app/layout.tsx so the expected origin is asserted from one source of
+// truth instead of a hard-coded deployment host.
+const siteOrigin = new URL(
+  process.env.SITE_URL ?? "https://gaugelet.lammworks.com",
+).origin;
+
+function escaped(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -40,9 +50,9 @@ test("server-renders the launch landing page", async () => {
   assert.doesNotMatch(html, /Coffee link coming before launch/);
   assert.match(html, /OpenAI’s enforced limits remain authoritative/);
   assert.match(html, /Built by LammWorks/);
-  assert.match(html, /<link rel="canonical" href="https:\/\/gaugelet\.wonkytonks\.chatgpt\.site"/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${escaped(siteOrigin)}"`));
   assert.match(html, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml"/);
-  assert.match(html, /<meta property="og:image" content="https:\/\/gaugelet\.wonkytonks\.chatgpt\.site\/images\/gaugelet-social\.jpg"/);
+  assert.match(html, new RegExp(`<meta property="og:image" content="${escaped(siteOrigin)}/images/gaugelet-social\\.jpg"`));
   assert.match(html, /<meta name="twitter:card" content="summary_large_image"/);
   assert.doesNotMatch(html, /real[- ]time|exact credits|always exactly three/i);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
@@ -63,7 +73,7 @@ for (const route of [
     assert.match(html, /Built by LammWorks/);
     assert.match(
       html,
-      new RegExp(`<link rel="canonical" href="https://gaugelet\\.wonkytonks\\.chatgpt\\.site${route[0]}"`),
+      new RegExp(`<link rel="canonical" href="${escaped(siteOrigin)}${route[0]}"`),
     );
   });
 }

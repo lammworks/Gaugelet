@@ -38,3 +38,6 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Deployment-specific hosting project id
+.openai/hosting.json
