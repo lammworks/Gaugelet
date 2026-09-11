@@ -1,6 +1,6 @@
 # Gaugelet privacy notice
 
-Last updated: August 21, 2026
+Last updated: September 11, 2026
 
 ## Summary
 
@@ -8,7 +8,7 @@ Gaugelet is a local-first menu-bar app. It has no Gaugelet account, advertising,
 
 Gaugelet communicates with two external boundaries:
 
-1. The separately installed Codex CLI may contact OpenAI when Gaugelet asks its local App Server for rate-limit data.
+1. The separately installed Codex CLI may contact OpenAI when Gaugelet asks its local App Server for allowance, reset/credit details, or optional token activity.
 2. Sparkle may contact GitHub to check for and download Gaugelet updates.
 
 Gaugelet does not sell personal information.
@@ -24,6 +24,13 @@ The response may contain:
 - Window duration and reset time, when returned.
 - Plan or model labels, when returned.
 - Rate-limit, workspace-credit, or spending-control state, when returned.
+- Earned reset count and the earliest known future expiry among returned available resets.
+- Credit balances and availability, kept separate by returned bucket and never summed.
+- An account identifier, used only in memory to avoid alerts across account changes.
+
+When **Token activity** is enabled, Gaugelet also sends the read-only `account/usage/read` request. It displays up to seven reported daily token buckets and lifetime tokens, when returned. Missing days are not filled with zeroes. The optional activity request can fail without hiding allowance data. Gaugelet does not request thread history or task status.
+
+The **Manage usage** action opens OpenAI’s usage page. Gaugelet does not redeem resets, buy credits, change plans, or send messages.
 
 Gaugelet does not ask this integration for conversation content, prompts, responses, message history, project files, or billing transactions.
 
@@ -35,7 +42,7 @@ The Codex CLI may use its existing session to communicate with OpenAI. OpenAI an
 
 ## Update checks
 
-Gaugelet includes Sparkle 2.9.5. If you accept automatic update checks, Sparkle normally requests this GitHub-hosted appcast about once every 24 hours. A manual **Check for Updates** request uses the same channel:
+Gaugelet includes Sparkle 2.9.6. If you accept automatic update checks, Sparkle normally requests this GitHub-hosted appcast about once every 24 hours. A manual **Check for Updates** request uses the same channel:
 
 `https://github.com/lammworks/Gaugelet/releases/latest/download/appcast.xml`
 
@@ -50,15 +57,16 @@ Sparkle verifies the signed update feed and enclosure before extraction. Update 
 Gaugelet stores preferences with the standard macOS preferences system, including settings such as:
 
 - Menu-bar percentage and hover behavior.
-- Warning threshold and notification preference.
+- Warning threshold, usage alerts, and optional allowance-restored alerts.
+- Pinned menu-bar counter identifier and token-activity preference.
 - Launch-at-login intent and status-related state.
 - Selected icon theme.
 - Selected source mode and demo scenario.
 - Sparkle update-check preference, managed by Sparkle.
 
-Live percentages and reset timestamps remain in process memory. A last successful reading may remain in memory briefly enough to be shown as explicitly stale after a refresh failure. Gaugelet does not maintain a persistent usage-history database.
+Live percentages, account identifiers, credit/reset details, and token activity remain in process memory. A last successful reading may remain in memory briefly enough to be shown as explicitly stale after a refresh failure. Gaugelet does not maintain a persistent usage-history database.
 
-When notifications are enabled, Gaugelet asks macOS to deliver a local notification when a live window crosses the selected threshold or reaches its limit. Demo and stale readings never trigger an alert. Gaugelet does not send notification content to LammWorks.
+When notifications are enabled, Gaugelet asks macOS to deliver a local notification when any live window crosses the selected threshold or reaches its limit. With restoration alerts enabled, it also notifies after a fresh reading confirms a blocked window is available again. Demo and stale readings never trigger an alert. Gaugelet does not send notification content to LammWorks.
 
 macOS and GitHub may independently retain operational records such as system logs, crash logs, quarantine data, access logs, or release-download logs. Gaugelet does not upload macOS logs.
 
