@@ -65,6 +65,28 @@ final class UsageStore: ObservableObject {
             onNotificationPreferenceChanged?(usageNotificationsEnabled)
         }
     }
+    @Published var pinnedLimitID: String {
+        didSet {
+            defaults.set(pinnedLimitID, forKey: "pinnedLimitID")
+            onStatusPresentationChange?()
+        }
+    }
+    @Published var notifyOnRestore: Bool {
+        didSet { defaults.set(notifyOnRestore, forKey: "notifyOnRestore") }
+    }
+    @Published var activityEnabled: Bool {
+        didSet {
+            defaults.set(activityEnabled, forKey: "activityEnabled")
+            refreshActivity()
+        }
+    }
+    @Published private(set) var activityState: ActivityState = .disabled
+    private var activityTask: Task<Void, Never>?
+    private var activityGeneration: UInt64 = 0
+    private var lastRefreshAttempt: Date?
+
+    var menuBarLimit: UsageLimit? { snapshot?.menuBarLimit(pinnedID: pinnedLimitID) }
+
     @Published private(set) var isRefreshing = false
 
     var onStatusPresentationChange: (() -> Void)?
@@ -105,6 +127,9 @@ final class UsageStore: ObservableObject {
                 return nil
             } ?? .core
 
+        pinnedLimitID = defaults.string(forKey: "pinnedLimitID") ?? ""
+        notifyOnRestore = defaults.bool(forKey: "notifyOnRestore")
+        activityEnabled = defaults.bool(forKey: "activityEnabled")
         scenario = savedScenario
         showPercentageInMenuBar = defaults.object(forKey: DefaultsKey.showPercentage) as? Bool ?? true
         hoverToOpen = defaults.object(forKey: DefaultsKey.hoverToOpen) as? Bool ?? false
@@ -117,7 +142,28 @@ final class UsageStore: ObservableObject {
             : .loading
     }
 
+    func refreshIfNeeded(maximumAge: TimeInterval = 60) {
+        guard !isRefreshing else { return }
+        if let lastRefreshAttempt, now().timeIntervalSince(lastRefreshAttempt) < maximumAge { return }
+        refresh()
+    }
+
+    func refreshIfDue() {
+        guard !isRefreshing, sourcePreference == .codexAppServer else { return }
+        let current = now()
+        let lastAttempt = lastRefreshAttempt ?? .distantPast
+        let resetDue = snapshot?.limits.contains {
+            guard let reset = $0.resetDate else { return false }
+            return reset > lastAttempt && reset <= current
+        } ?? false
+        if resetDue || current.timeIntervalSince(lastAttempt) >= 5 * 60 { refresh() }
+    }
+
     func refresh() {
+        lastRefreshAttempt = now()
+        activityTask?.cancel()
+        activityGeneration &+= 1
+        activityState = activityEnabled ? .loading : .disabled
         refreshGeneration &+= 1
         let generation = refreshGeneration
         refreshTask?.cancel()
@@ -125,6 +171,7 @@ final class UsageStore: ObservableObject {
         if sourcePreference == .demo {
             isRefreshing = false
             publish(.demo(DemoUsageProvider.snapshot(for: scenario)))
+            refreshActivity()
             return
         }
 
@@ -161,7 +208,9 @@ final class UsageStore: ObservableObject {
             lastKnownGoodSnapshot = snapshot
             lastKnownGoodReceivedAt = now()
             publish(.live(snapshot))
+            refreshActivity()
         case .failure(let error):
+            activityState = activityEnabled ? .unavailable : .disabled
             let message = "Codex usage is unavailable: \(error.localizedDescription)"
             let currentTime = now()
             if
@@ -185,11 +234,13 @@ final class UsageStore: ObservableObject {
     private func publish(_ newState: UsageState) {
         staleExpiryTask?.cancel()
         staleExpiryTask = nil
-        let notification = UsageNotificationPolicy.alert(
-            previous: state.snapshot,
-            current: newState.snapshot,
-            warningThreshold: warningThreshold
-        )
+        let notifications: [GaugeletUsageAlert]
+        if case .live = newState {
+            notifications = UsageNotificationPolicy.alerts(
+                previous: state.snapshot, current: newState.snapshot,
+                warningThreshold: warningThreshold, notifyOnRestore: notifyOnRestore
+            )
+        } else { notifications = [] }
         state = newState
 
         if case .stale(let snapshot, let errorMessage, _) = newState {
@@ -198,8 +249,31 @@ final class UsageStore: ObservableObject {
 
         onStatusPresentationChange?()
 
-        if usageNotificationsEnabled, let notification {
-            onUsageAlert?(notification)
+        if usageNotificationsEnabled {
+            notifications.forEach { onUsageAlert?($0) }
+        }
+    }
+
+    private func refreshActivity() {
+        activityTask?.cancel()
+        activityGeneration &+= 1
+        let generation = activityGeneration
+        guard activityEnabled else { activityState = .disabled; return }
+        if sourcePreference == .demo {
+            activityState = .available(DemoUsageProvider.activity(now: now()))
+            return
+        }
+        guard case .live = state else {
+            activityState = .unavailable
+            return
+        }
+        activityState = .loading
+        let provider = provider
+        activityTask = Task { [weak self] in
+            let result = try? await provider.fetchActivity()
+            guard !Task.isCancelled, let self, self.activityGeneration == generation, self.activityEnabled else { return }
+            self.activityState = result.map(ActivityState.available) ?? .unavailable
+            self.activityTask = nil
         }
     }
 
@@ -249,6 +323,9 @@ final class UsageStore: ObservableObject {
     }
 
     func cancelRefresh() {
+        activityGeneration &+= 1
+        activityTask?.cancel()
+        activityTask = nil
         refreshGeneration &+= 1
         refreshTask?.cancel()
         refreshTask = nil

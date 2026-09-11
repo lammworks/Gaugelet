@@ -42,12 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         updateStatusItem()
         store.refresh()
         refreshTimer = Timer.scheduledTimer(
-            timeInterval: 5 * 60,
+            timeInterval: 30,
             target: self,
             selector: #selector(refreshUsage),
             userInfo: nil,
             repeats: true
         )
+
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
 
         if ProcessInfo.processInfo.environment["GAUGELET_OPEN_ON_LAUNCH"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -62,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         refreshTimer?.invalidate()
         statusAppearanceObservation?.invalidate()
         store.cancelRefresh()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     private func configureStatusItem() {
@@ -124,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
         let isDark = isStatusBarDark(button)
-        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state)
+        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state, pinnedID: store.pinnedLimitID)
         button.image = GaugeletAppIcon.menuBarImage(
             for: store.iconStyle,
             mode: iconState.mode,
@@ -148,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .live(let snapshot):
             let value = statusValue(for: snapshot)
             button.title = store.showPercentageInMenuBar ? "  \(value)" : ""
-            button.toolTip = "Gaugelet — ChatGPT plan usage"
+            button.toolTip = "Gaugelet — \(snapshot.menuBarLimit(pinnedID: store.pinnedLimitID)?.compactName ?? "Pinned limit unavailable")"
             button.setAccessibilityLabel(accessibilityLabel(for: snapshot))
 
         case .stale(let snapshot, _, _):
@@ -205,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func statusValue(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn, let closest = snapshot.closestLimit else { return "—" }
+        guard snapshot.isSignedIn, let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else { return "—" }
         if closest.blockedReason != nil { return "blocked" }
         if closest.isCapped {
             return closest.resetDate?.gaugeletCountdownValue() ?? "0%"
@@ -214,8 +217,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func accessibilityLabel(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn, let closest = snapshot.closestLimit else {
-            return "Gaugelet, not connected"
+        guard snapshot.isSignedIn else { return "Gaugelet, not connected" }
+        guard let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
+            return "Gaugelet, selected allowance unavailable"
         }
         if let blockedReason = closest.blockedReason {
             return "Gaugelet, \(closest.displayName), \(blockedReason.lowercased())"
@@ -225,7 +229,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func refreshUsage() {
-        store.refresh()
+        store.refreshIfDue()
+        updateStatusItem()
+    }
+
+    @objc private func didWake() {
+        store.refreshIfNeeded(maximumAge: 0)
     }
 
     @objc
@@ -284,6 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func showPopover(pinned: Bool) {
+        store.refreshIfNeeded()
         guard let button = statusItem.button else {
             qaLog("status item button unavailable")
             return

@@ -35,11 +35,16 @@ enum CodexUsageError: LocalizedError, Sendable {
 
 protocol UsageProviding: Sendable {
     func fetchSnapshot() async throws -> UsageSnapshot
+    func fetchActivity() async throws -> UsageActivity
+}
+
+extension UsageProviding {
+    func fetchActivity() async throws -> UsageActivity { throw CodexUsageError.invalidResponse }
 }
 
 struct CodexUsageProvider: UsageProviding, Sendable {
     private static let maximumResponseBytes = 1_048_576
-    private static let maximumRateLimitWindows = 12
+    private static let maximumRateLimitWindows = 128
 
     private let executableOverride: URL?
     private let argumentsOverride: [String]?
@@ -50,11 +55,20 @@ struct CodexUsageProvider: UsageProviding, Sendable {
     }
 
     func fetchSnapshot() async throws -> UsageSnapshot {
+        try Self.parseSnapshot(from: await fetchResponse(method: "account/rateLimits/read"))
+    }
+
+    func fetchActivity() async throws -> UsageActivity {
+        try Self.parseActivity(from: await fetchResponse(method: "account/usage/read"))
+    }
+
+    private func fetchResponse(method: String) async throws -> Data {
         let cancellation = ProcessCancellationCoordinator()
         let executableOverride = executableOverride
         let argumentsOverride = argumentsOverride
         let worker = Task.detached(priority: .utility) {
-            try Self.fetchSnapshotSynchronously(
+            try Self.fetchResponseSynchronously(
+                method: method,
                 cancellation: cancellation,
                 executableOverride: executableOverride,
                 argumentsOverride: argumentsOverride
@@ -71,11 +85,12 @@ struct CodexUsageProvider: UsageProviding, Sendable {
         }
     }
 
-    private static func fetchSnapshotSynchronously(
+    private static func fetchResponseSynchronously(
+        method: String,
         cancellation: ProcessCancellationCoordinator,
         executableOverride: URL?,
         argumentsOverride: [String]?
-    ) throws -> UsageSnapshot {
+    ) throws -> Data {
         try cancellation.checkCancellation()
 
         let executableURL = try executableOverride ?? locateCodexExecutable()
@@ -130,7 +145,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
                 "params": [:]
             ] as [String: Any],
             [
-                "method": "account/rateLimits/read",
+                "method": method,
                 "id": 2
             ] as [String: Any]
         ]
@@ -185,7 +200,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
             throw CodexUsageError.emptyResponse
         }
 
-        return try Self.parseSnapshot(from: responseData)
+        return responseData
     }
 
     private static func locateCodexExecutable() throws -> URL {
@@ -207,7 +222,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
     }
 
     private static var clientVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0"
     }
 
     static func parseSnapshot(from responseData: Data, now: Date = Date()) throws -> UsageSnapshot {
@@ -239,7 +254,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
         }
 
         let buckets = rateLimitBuckets(from: rateLimitResult)
-        let limits = Array(buckets
+        let returnedLimits = buckets
             .flatMap { limitWindows(from: $0.value, bucketID: $0.key) }
             .sorted {
                 if $0.effectiveRemainingPercent == $1.effectiveRemainingPercent {
@@ -256,9 +271,12 @@ struct CodexUsageProvider: UsageProviding, Sendable {
                 }
                 return $0.effectiveRemainingPercent < $1.effectiveRemainingPercent
             }
-            .prefix(maximumRateLimitWindows))
 
-        guard !limits.isEmpty else {
+        let limits = Array(returnedLimits.prefix(maximumRateLimitWindows))
+
+        let resets = parseResetCredits(rateLimitResult["rateLimitResetCredits"], now: now)
+        let credits = buckets.compactMap { parseCreditBalance($0.value["credits"], id: $0.key, name: $0.value["limitName"] as? String) }
+        guard !limits.isEmpty || resets != nil || !credits.isEmpty else {
             throw CodexUsageError.noRateLimits
         }
 
@@ -279,8 +297,69 @@ struct CodexUsageProvider: UsageProviding, Sendable {
             isSignedIn: true,
             note: note,
             source: .codexAppServer,
-            sourceDetail: "Live from Codex. Gaugelet never sees your ChatGPT password."
+            sourceDetail: "ChatGPT Work and Codex allowance. Read-only via Codex on this Mac.",
+            accountID: displayLabel(rateLimitResult["accountId"] as? String ?? "", maximumLength: 256),
+            resetCredits: resets,
+            credits: credits,
+            omittedLimitCount: max(returnedLimits.count - limits.count, 0)
         )
+    }
+
+    private static func parseResetCredits(_ raw: Any?, now: Date) -> EarnedResetCredits? {
+        guard let value = raw as? [String: Any],
+              let count = strictInteger(value["availableCount"], allowedRange: 0...1_000_000) else { return nil }
+        let dates = (value["credits"] as? [[String: Any]] ?? []).prefix(100).compactMap { row -> Date? in
+            guard row["status"] as? String == "available",
+                  let timestamp = strictInteger(row["expiresAt"], allowedRange: 946_684_800...4_102_444_800) else { return nil }
+            let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+            return date > now ? date : nil
+        }
+        return EarnedResetCredits(availableCount: count, earliestKnownExpiry: count > 0 ? dates.min() : nil)
+    }
+
+    private static func parseCreditBalance(_ raw: Any?, id: String, name: String?) -> CreditBalance? {
+        guard let value = raw as? [String: Any],
+              let has = value["hasCredits"] as? NSNumber, CFGetTypeID(has) == CFBooleanGetTypeID(),
+              let unlimited = value["unlimited"] as? NSNumber, CFGetTypeID(unlimited) == CFBooleanGetTypeID() else { return nil }
+        let rawBalance = value["balance"] as? String
+        let balance: String?
+        if let rawBalance, rawBalance.count <= 40,
+           rawBalance.range(of: #"^\d+(\.\d+)?$"#, options: .regularExpression) != nil {
+            balance = rawBalance
+        } else { balance = nil }
+        return CreditBalance(id: id, name: readableBucketLabel(name ?? id, maximumLength: 80) ?? "Credits",
+                             balance: balance, hasCredits: has.boolValue, unlimited: unlimited.boolValue)
+    }
+
+    static func parseActivity(from data: Data, now: Date = Date()) throws -> UsageActivity {
+        guard let text = String(data: data, encoding: .utf8) else { throw CodexUsageError.invalidResponse }
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let bytes = String(line).data(using: .utf8),
+                  let message = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  let id = message["id"] as? NSNumber, CFGetTypeID(id) != CFBooleanGetTypeID(), id.intValue == 2 else { continue }
+            guard let result = message["result"] as? [String: Any], let summary = result["summary"] as? [String: Any] else {
+                throw CodexUsageError.invalidResponse
+            }
+            let lifetime = strictInteger(summary["lifetimeTokens"], allowedRange: 0...9_000_000_000_000_000)
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.isLenient = false
+            let rawDays = result["dailyUsageBuckets"] as? [[String: Any]]
+            var seen = Set<String>()
+            let days = rawDays.map { rows in
+                rows.prefix(366).compactMap { row -> ActivityDay? in
+                    guard let date = row["startDate"] as? String, date.count == 10,
+                          let parsed = formatter.date(from: date), formatter.string(from: parsed) == date,
+                          let tokens = strictInteger(row["tokens"], allowedRange: 0...9_000_000_000_000_000),
+                          seen.insert(date).inserted else { return nil }
+                    return ActivityDay(date: date, tokens: tokens)
+                }.sorted { $0.date < $1.date }
+            }
+            return UsageActivity(days: days.map { Array($0.suffix(7)) }, lifetimeTokens: lifetime, lastUpdated: now)
+        }
+        throw CodexUsageError.invalidResponse
     }
 
     private static func containsResponse(id expectedID: Int, in data: Data) -> Bool {
@@ -403,7 +482,9 @@ struct CodexUsageProvider: UsageProviding, Sendable {
                 name: name,
                 remainingPercent: min(max(remaining, 0), 100),
                 resetDate: resetDate,
-                blockedReason: blockedReason
+                blockedReason: blockedReason,
+                bucketID: bucketID,
+                windowDurationMins: durationMinutes
             )
         }
     }

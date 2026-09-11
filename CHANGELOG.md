@@ -2,6 +2,19 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
+## [1.1.0] - 2026-09-11
+
+Build `3` — allowance and account activity.
+
+- Stable shared, weekly, and special-bucket rows, with a selectable menu-bar counter. Missing pinned counters stay unavailable.
+- Independent threshold and cap alerts for every returned window; optional recovery alerts require a fresh successful reading. Account changes do not generate crossing alerts when identifiers are supplied.
+- Earned reset count, earliest known expiry, and scoped credit balances. Manage usage opens OpenAI; no redemption or purchase actions.
+- Refresh on open when at least a minute old, on wake, and at the first 30-second timer tick after an expected reset; background polling stays five minutes.
+- Optional account token activity showing the last seven reported dates and lifetime tokens. Missing data stays unavailable; no local history database.
+- Retain up to 128 allowance windows and report overflow explicitly.
+- Task-status monitoring remains unsupported: a standalone App Server only sees its own loaded tasks.
+- No model/speed guidance or additional inference calls.
+
 ## [1.0.1] - 2026-08-22
 
 Build `2` — focused menu-bar presentation update.
@@ -65,6 +78,7 @@ Build `1` — first public release under the Gaugelet name.
 
 The internal 0.9 line established the Gaugelet name, native menu-bar interface, demo states, icon themes, notification threshold, and initial release-hardening checks. It was not the public 1.0 release and did not include the final Sparkle channel.
 
+[1.1.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.0
 [1.0.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.0
 

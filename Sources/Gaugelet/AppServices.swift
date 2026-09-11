@@ -19,29 +19,30 @@ struct GaugeletMenuBarIconState: Equatable {
 }
 
 enum GaugeletMenuBarPresentation {
-    static func iconState(for state: UsageState) -> GaugeletMenuBarIconState {
+    static func iconState(for state: UsageState, pinnedID: String? = nil) -> GaugeletMenuBarIconState {
         switch state {
         case .loading:
             return GaugeletMenuBarIconState(mode: .loading, percent: nil)
         case .unavailable:
             return GaugeletMenuBarIconState(mode: .unavailable, percent: nil)
         case .live(let snapshot):
-            return iconState(for: snapshot, fallback: .live)
+            return iconState(for: snapshot, fallback: .live, pinnedID: pinnedID)
         case .stale(let snapshot, _, _):
-            return iconState(for: snapshot, fallback: .stale)
+            return iconState(for: snapshot, fallback: .stale, pinnedID: pinnedID)
         case .demo(let snapshot):
-            return iconState(for: snapshot, fallback: .demo)
+            return iconState(for: snapshot, fallback: .demo, pinnedID: pinnedID)
         }
     }
 
     private static func iconState(
         for snapshot: UsageSnapshot,
-        fallback: GaugeletMenuBarIconMode
+        fallback: GaugeletMenuBarIconMode,
+        pinnedID: String?
     ) -> GaugeletMenuBarIconState {
         guard snapshot.isSignedIn else {
             return GaugeletMenuBarIconState(mode: .signedOut, percent: nil)
         }
-        guard let closestLimit = snapshot.closestLimit else {
+        guard let closestLimit = pinnedID.map({ snapshot.menuBarLimit(pinnedID: $0) }) ?? snapshot.closestLimit else {
             return GaugeletMenuBarIconState(mode: fallback, percent: nil)
         }
 
@@ -55,6 +56,7 @@ enum GaugeletMenuBarPresentation {
 
 enum GaugeletLink: String, CaseIterable, Sendable {
     case chatGPT = "https://chatgpt.com"
+    case usage = "https://chatgpt.com/codex/settings/usage"
     case releases = "https://github.com/lammworks/Gaugelet/releases"
     case buyMeACoffee = "https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"
     case privacy = "https://github.com/lammworks/Gaugelet/blob/main/PRIVACY.md"

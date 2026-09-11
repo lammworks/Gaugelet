@@ -6,8 +6,8 @@ final class GaugeletReleaseConfigurationTests: XCTestCase {
     func testInfoPlistConfiguresVersionAndAuthenticatedSparkleDefaults() throws {
         let info = try loadPackagingInfoPlist()
 
-        XCTAssertEqual(info["CFBundleShortVersionString"] as? String, "1.0.1")
-        XCTAssertEqual(info["CFBundleVersion"] as? String, "2")
+        XCTAssertEqual(info["CFBundleShortVersionString"] as? String, "1.1.0")
+        XCTAssertEqual(info["CFBundleVersion"] as? String, "3")
         XCTAssertEqual(
             info["SUFeedURL"] as? String,
             "https://github.com/lammworks/Gaugelet/releases/latest/download/appcast.xml"

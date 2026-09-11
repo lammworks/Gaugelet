@@ -1,3 +1,4 @@
+import Charts
 import AppKit
 import SwiftUI
 
@@ -280,9 +281,9 @@ private struct UsageDashboard: View {
                 )
 
             case .live(let snapshot), .demo(let snapshot), .stale(let snapshot, _, _):
-                if snapshot.isSignedIn, let closest = snapshot.closestLimit {
+                if snapshot.isSignedIn {
                     TimelineView(.periodic(from: .now, by: 30)) { context in
-                        dashboardContent(snapshot: snapshot, closest: closest, now: context.date)
+                        dashboardContent(snapshot: snapshot, now: context.date)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 } else {
@@ -293,92 +294,147 @@ private struct UsageDashboard: View {
         .padding(16)
     }
 
-    private func dashboardContent(
-        snapshot: UsageSnapshot,
-        closest: UsageLimit,
-        now: Date
-    ) -> some View {
+    private func dashboardContent(snapshot: UsageSnapshot, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("CHATGPT PLAN USAGE")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .tracking(0.65)
-                        .foregroundStyle(.secondary)
+                    Text("ALLOWANCE")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(0.7)
                     Text(snapshot.planName)
-                        .font(.system(size: 11.5))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if store.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 22, height: 22)
-                        .accessibilityLabel("Refreshing usage")
+                    ProgressView().controlSize(.small)
                 } else {
-                    Button {
-                        store.refresh()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 30, height: 30)
-                            .contentShape(Rectangle())
+                    Button { store.refresh() } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Refresh usage")
                     .accessibilityLabel("Refresh usage")
                 }
             }
-
-            Text("MOST CONSTRAINED RETURNED LIMIT")
-                .font(.system(size: 9.5, weight: .semibold))
-                .tracking(0.65)
-                .foregroundStyle(.secondary)
-
-            PrimaryLimitCard(
-                limit: closest,
-                warningThreshold: store.warningThreshold,
-                now: now
-            )
-
-            if !snapshot.otherLimits.isEmpty {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("OTHER RETURNED LIMITS")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .tracking(0.65)
-                        .foregroundStyle(.secondary)
-
-                    ScrollView(.vertical) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(snapshot.otherLimits.enumerated()), id: \.element.id) { index, limit in
-                                if index > 0 {
-                                    Divider()
-                                        .opacity(0.32)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if snapshot.orderedLimits.isEmpty {
+                        Text("Allowance windows unavailable")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    VStack(spacing: 0) {
+                        ForEach(snapshot.orderedLimits) { limit in
+                            HStack(spacing: 8) {
+                                AllowanceRow(limit: limit, warningThreshold: store.warningThreshold, now: now)
+                                Button {
+                                    store.pinnedLimitID = store.pinnedLimitID == limit.id ? "" : limit.id
+                                } label: {
+                                    Image(systemName: store.pinnedLimitID == limit.id ? "pin.fill" : "pin")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(store.pinnedLimitID == limit.id ? accent : .secondary)
+                                        .frame(width: 24, height: 34)
                                 }
-                                LimitRow(
-                                    limit: limit,
-                                    warningThreshold: store.warningThreshold,
-                                    now: now
-                                )
+                                .buttonStyle(.plain)
+                                .help(store.pinnedLimitID == limit.id ? "Use default menu-bar counter" : "Pin to menu bar")
+                                .accessibilityLabel("\(store.pinnedLimitID == limit.id ? "Unpin" : "Pin") \(limit.compactName)")
+                            }
+                            if limit.id != snapshot.orderedLimits.last?.id { Divider().opacity(0.3) }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+
+                    if snapshot.omittedLimitCount > 0 {
+                        Text("\(snapshot.omittedLimitCount) additional windows · view in Manage usage")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    if !store.pinnedLimitID.isEmpty && store.menuBarLimit == nil {
+                        HStack {
+                            Text("Pinned counter unavailable").foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Clear pin") { store.pinnedLimitID = "" }.buttonStyle(.link)
+                        }.font(.system(size: 10.5))
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Label("Resets", systemImage: "arrow.counterclockwise")
+                            Spacer()
+                            Text(snapshot.resetCredits.map { "\($0.availableCount) available" } ?? "Unavailable")
+                                .monospacedDigit()
+                        }
+                        if let expiry = snapshot.resetCredits?.earliestKnownExpiry {
+                            Text("Next known expiry \(expiry.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        ForEach(snapshot.credits) { credit in
+                            HStack {
+                                Text("\(credit.name) credits").lineLimit(1)
+                                Spacer()
+                                Text(credit.displayValue).monospacedDigit()
                             }
                         }
-                        .padding(.horizontal, 10)
+                        Button("Manage usage") { store.open(.usage) }.buttonStyle(.link)
                     }
-                    .frame(maxHeight: 126)
-                    .scrollIndicators(.visible)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(GaugeletPalette.glassEdge.opacity(0.62), lineWidth: 0.75)
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 2)
+
+                    if store.activityEnabled {
+                        Divider().opacity(0.4)
+                        activityContent
                     }
                 }
             }
-
-            Spacer(minLength: 0)
-
+            .scrollIndicators(.visible)
             stateNotice
             footer(snapshot: snapshot)
         }
+    }
+
+    @ViewBuilder private var activityContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("TOKEN ACTIVITY").font(.system(size: 9.5, weight: .semibold)).tracking(0.6)
+            switch store.activityState {
+            case .disabled:
+                EmptyView()
+            case .loading:
+                ProgressView().controlSize(.small)
+            case .unavailable:
+                Text("Activity unavailable").foregroundStyle(.secondary)
+            case .available(let activity):
+                if let days = activity.days, !days.isEmpty {
+                    Chart(days) { day in
+                        BarMark(x: .value("Date", String(day.date.suffix(5))), y: .value("Tokens", day.tokens))
+                            .foregroundStyle(accent)
+                            .accessibilityLabel(day.date)
+                            .accessibilityValue("\(day.tokens) tokens")
+                    }
+                    .chartXAxis { AxisMarks(values: .automatic) }
+                    .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
+                    .frame(height: 85)
+                    ForEach(days.reversed()) { day in
+                        HStack {
+                            Text(day.date).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(day.tokens.formatted()).monospacedDigit()
+                        }
+                    }
+                } else {
+                    Text(activity.days == nil ? "Daily activity unavailable" : "No reported daily activity")
+                        .foregroundStyle(.secondary)
+                }
+                if let lifetime = activity.lifetimeTokens {
+                    HStack {
+                        Text("Lifetime tokens").foregroundStyle(.secondary)
+                        Spacer()
+                        Text(lifetime.formatted()).monospacedDigit()
+                    }
+                }
+                Text("Checked \(activity.lastUpdated.formatted(date: .omitted, time: .shortened)) · reported days")
+                    .font(.system(size: 9.5)).foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 10.5))
     }
 
     private func connectionStatusContent(
@@ -527,116 +583,21 @@ private struct UsageDashboard: View {
     }
 
     private func footer(snapshot: UsageSnapshot) -> some View {
-        HStack(spacing: 8) {
-            Text(store.state.badgeTitle == "STALE" ? "Last live update" : "Updated")
+        HStack(spacing: 4) {
+            Text(store.state.badgeTitle == "STALE" ? "Last live check" : "Checked")
             Text(snapshot.lastUpdated, style: .relative)
-            Text("5 min refresh")
-                .help("Gaugelet asks Codex for a fresh usage snapshot every five minutes.")
-            Label("Read-only", systemImage: "lock")
-                .labelStyle(.titleAndIcon)
-                .help(store.state.sourceDetail)
+            Text("ago")
             Spacer()
-            Button("Open ChatGPT") {
-                store.open(.chatGPT)
-            }
-            .buttonStyle(.link)
-            .foregroundStyle(accent)
+            Label("Read-only", systemImage: "lock")
+                .help("ChatGPT Work and Codex allowance. Five-minute background refresh; refreshes on wake, open, and reset.")
         }
-        .font(.system(size: 10.5))
+        .font(.system(size: 10))
         .foregroundStyle(.secondary)
     }
+
 }
 
-private struct PrimaryLimitCard: View {
-    let limit: UsageLimit
-    let warningThreshold: Int
-    let now: Date
-    @Environment(\.gaugeletAccent) private var accent
-
-    private var tone: UsageTone {
-        limit.tone(warningThreshold: warningThreshold)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(limit.displayContext ?? "General usage")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(limit.displayName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(primaryValue)
-                        .font(.system(size: limit.blockedReason == nil ? 28 : 18, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(color)
-                    Text(primaryValueCaption)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            RemainingProgressBar(fraction: limit.remainingFraction, tone: tone)
-                .frame(height: 7)
-
-            Label(
-                limit.blockedReason ?? limit.resetDescription(from: now),
-                systemImage: limit.blockedReason == nil ? "clock" : "exclamationmark.circle"
-            )
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(GaugeletPalette.glassEdge.opacity(0.72), lineWidth: 0.75)
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(color.opacity(0.16), lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
-    }
-
-    private var primaryValue: String {
-        if limit.blockedReason != nil { return "BLOCKED" }
-        if limit.isCapped {
-            return limit.resetDate?.gaugeletCountdownValue(from: now) ?? "0%"
-        }
-        return "\(limit.clampedRemainingPercent)%"
-    }
-
-    private var primaryValueCaption: String {
-        if limit.blockedReason != nil { return "unavailable" }
-        if limit.isCapped { return limit.resetDate == nil ? "limit reached" : "until reset" }
-        return "left"
-    }
-
-    private var accessibilitySummary: String {
-        if let blockedReason = limit.blockedReason {
-            return "\(limit.displayName), \(blockedReason), \(limit.resetDescription(from: now))"
-        }
-        return "\(limit.displayName), \(limit.clampedRemainingPercent) percent left, \(limit.resetDescription(from: now))"
-    }
-
-    private var color: Color {
-        switch tone {
-        case .comfortable: accent
-        case .warning: GaugeletPalette.copper
-        case .critical: GaugeletPalette.coral
-        case .unavailable: .secondary
-        }
-    }
-}
-
-private struct LimitRow: View {
+private struct AllowanceRow: View {
     let limit: UsageLimit
     let warningThreshold: Int
     let now: Date
@@ -646,7 +607,7 @@ private struct LimitRow: View {
         VStack(spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(limit.displayName)
+                    Text(limit.compactName)
                         .font(.system(size: 11.5, weight: .medium))
                         .lineLimit(1)
                     Text(limitRowDetail)
@@ -672,7 +633,7 @@ private struct LimitRow: View {
     }
 
     private var limitRowDetail: String {
-        [limit.displayContext, limit.resetDescription(from: now)]
+        [limit.blockedReason, limit.resetDescription(from: now)]
             .compactMap { $0 }
             .joined(separator: " · ")
     }
@@ -745,10 +706,26 @@ private struct SettingsView: View {
                     }
                     Divider()
                     Toggle("Usage alerts", isOn: $store.usageNotificationsEnabled)
-                    Text("Get a macOS alert when a live limit drops below \(store.warningThreshold)% or is reached. Gaugelet never alerts for demo or stale data.")
+                    Toggle("Alert when restored", isOn: $store.notifyOnRestore)
+                        .disabled(!store.usageNotificationsEnabled)
+                    Divider()
+                    Toggle("Token activity", isOn: $store.activityEnabled)
+                    Text("Account activity stays on this Mac.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                settingsGroup("MENU-BAR COUNTER") {
+                    Picker("Counter", selection: $store.pinnedLimitID) {
+                        Text("Default").tag("")
+                        ForEach(store.snapshot?.orderedLimits ?? []) { limit in
+                            Text(limit.compactName).tag(limit.id)
+                        }
+                    if !store.pinnedLimitID.isEmpty && store.menuBarLimit == nil {
+                            Text("Pinned counter unavailable").tag(store.pinnedLimitID)
+                        }
+                    }.labelsHidden()
                 }
 
                 settingsGroup("DATA SOURCE") {

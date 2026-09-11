@@ -9,7 +9,7 @@ ASSET_CATALOG="${ROOT_DIR}/Assets/Assets.xcassets"
 APP_ICON_SET="${ASSET_CATALOG}/AppIcon.appiconset"
 ICON_VARIANT_ROOT="${ROOT_DIR}/Assets/IconVariants"
 MENU_BAR_ICON="${ROOT_DIR}/Assets/GaugeletMenuBar.svg"
-CANDIDATE_ROOT="${ROOT_DIR}/build/candidate"
+CANDIDATE_ROOT="${GAUGELET_CANDIDATE_ROOT:-${ROOT_DIR}/build/candidate}"
 
 fail() {
     print -u2 -- "error: $*"
@@ -53,8 +53,8 @@ assert_plist_value CFBundleDisplayName Gaugelet
 assert_plist_value CFBundleExecutable Gaugelet
 assert_plist_value CFBundleIdentifier com.lammworks.gaugelet
 assert_plist_value CFBundleName Gaugelet
-assert_plist_value CFBundleShortVersionString 1.0.1
-assert_plist_value CFBundleVersion 2
+assert_plist_value CFBundleShortVersionString 1.1.0
+assert_plist_value CFBundleVersion 3
 assert_plist_value LSApplicationCategoryType public.app-category.utilities
 assert_plist_value LSMinimumSystemVersion 14.0
 assert_plist_value SUFeedURL 'https://github.com/lammworks/Gaugelet/releases/latest/download/appcast.xml'

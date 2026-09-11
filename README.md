@@ -18,6 +18,14 @@ Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Code
 
 > Gaugelet 1.0 is a free community release for Apple-silicon Macs. It is ad-hoc signed, not notarized by Apple, and may require **System Settings → Privacy & Security → Open Anyway** on first launch.
 
+## New in 1.1.0
+
+Gaugelet now includes stable allowance rows, menu-bar pinning, alerts per window, optional recovery alerts, earned resets and credit details, and opt-in token activity.
+
+Use the pin beside a counter to keep it in the menu bar. A missing pinned counter displays a dash until it returns or you clear it. **Manage usage** opens OpenAI’s controls; Gaugelet does not redeem resets or purchase credits. Enable **Token activity** in Settings for the last seven reported dates and lifetime tokens. Activity is separate from allowance and stays in memory.
+
+Gaugelet refreshes on wake, on open when at least a minute old, and after expected resets, alongside five-minute background polling. Upstream caching still applies. Monitoring live task status across other clients or environments is not supported.
+
 ## Why Gaugelet?
 
 Your AI plan is expensive. Your attention is expensive too.
