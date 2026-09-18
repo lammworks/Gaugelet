@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Dormant future path for an active Apple Developer Program membership.
+# Developer ID release path for an active Apple Developer Program membership.
 # It never publishes. It builds Developer ID-signed, notarized, stapled assets
 # for a release owner to review and finalize with Sparkle locally.
 
@@ -29,7 +29,13 @@ cleanup() {
         /usr/bin/hdiutil detach "${MOUNT_ROOT}" -quiet >/dev/null 2>&1 || true
     fi
     [[ -n "${MOUNT_ROOT}" && -d "${MOUNT_ROOT}" ]] && /bin/rmdir "${MOUNT_ROOT}" 2>/dev/null || true
-    [[ -n "${WORK_ROOT}" && -d "${WORK_ROOT}" ]] && /bin/rm -rf "${WORK_ROOT}"
+    if [[ -n "${WORK_ROOT}" && -d "${WORK_ROOT}" ]]; then
+        if [[ -d "${WORK_ROOT}/assets" ]]; then
+            print -u2 -- "Incomplete release retained for diagnosis: ${WORK_ROOT}"
+        else
+            /bin/rm -rf "${WORK_ROOT}"
+        fi
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -42,8 +48,8 @@ trap cleanup EXIT INT TERM
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INFO_PLIST}")"
-[[ "${VERSION}" == "1.1.0" && "${BUILD}" == "3" ]] \
-    || fail "notarized Gaugelet 1.1.0 path expects 1.1.0 (3)"
+[[ "${VERSION}" == "1.1.1" && "${BUILD}" == "4" ]] \
+    || fail "notarized Gaugelet 1.1.1 path expects 1.1.1 (4)"
 
 typeset -a SECURITY_KEYCHAIN_ARGS CODESIGN_KEYCHAIN_ARGS
 SECURITY_KEYCHAIN_ARGS=()
@@ -109,8 +115,10 @@ if ! /usr/bin/xcrun notarytool submit "${WORK_ROOT}/Gaugelet.dmg" \
 fi
 NOTARY_STATUS="$(/usr/bin/plutil -extract status raw -o - "${EVIDENCE_ROOT}/notarization.json" 2>/dev/null || true)"
 NOTARY_ID="$(/usr/bin/plutil -extract id raw -o - "${EVIDENCE_ROOT}/notarization.json" 2>/dev/null || true)"
-[[ "${NOTARY_STATUS}" == "Accepted" && -n "${NOTARY_ID}" ]] \
-    || fail "notarization was not accepted"
+[[ -n "${NOTARY_ID}" ]] || fail "notarization returned no submission ID"
+/usr/bin/xcrun notarytool log "${NOTARY_ID}" "${NOTARY_ARGS[@]}" \
+    "${EVIDENCE_ROOT}/notarization-log.json"
+[[ "${NOTARY_STATUS}" == "Accepted" ]] || fail "notarization was not accepted"
 /usr/bin/xcrun stapler staple "${WORK_ROOT}/Gaugelet.dmg"
 /usr/bin/xcrun stapler validate "${WORK_ROOT}/Gaugelet.dmg"
 /usr/bin/codesign --verify --deep --strict --verbose=4 "${PRODUCT_ROOT}/Gaugelet.app"
@@ -128,12 +136,14 @@ NOTARY_ID="$(/usr/bin/plutil -extract id raw -o - "${EVIDENCE_ROOT}/notarization
 ) > "${STAGED_ROOT}/Gaugelet.dmg.sha256"
 /usr/bin/install -m 644 "${EVIDENCE_ROOT}/notarization.json" \
     "${STAGED_ROOT}/notarization.json"
+/usr/bin/install -m 644 "${EVIDENCE_ROOT}/notarization-log.json" \
+    "${STAGED_ROOT}/notarization-log.json"
 
 SOURCE_COMMIT="$(git -C "${ROOT_DIR}" rev-parse HEAD)"
 CREATED_AT="$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')"
 {
     print -- "Gaugelet build evidence"
-    print -- "Artifact kind: dormant Developer ID/notarized"
+    print -- "Artifact kind: Developer ID/notarized"
     print -- "Version: ${VERSION}"
     print -- "Build: ${BUILD}"
     print -- "Created UTC: ${CREATED_AT}"
@@ -173,5 +183,5 @@ if [[ -e "${BACKUP_ROOT}" || -L "${BACKUP_ROOT}" ]]; then
     /bin/rm -rf "${BACKUP_ROOT}"
 fi
 
-print -- "Dormant Developer ID artifacts ready in ${RELEASE_ROOT}"
+print -- "Developer ID artifacts ready in ${RELEASE_ROOT}"
 print -- "No GitHub release was created or modified."

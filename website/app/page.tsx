@@ -272,12 +272,12 @@ export default function Home() {
 
       <section className="final-cta section-shell">
         <BrandMark />
-        <p className="section-kicker">Gaugelet 1.0</p>
+        <p className="section-kicker">Gaugelet for Mac</p>
         <h2>See the limit before it becomes the problem.</h2>
         <p>Free, open source, private by default, and built for Apple-silicon Macs running macOS 14 or later.</p>
         <div className="hero-actions">
           <a className="button button-primary" href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg">
-            Download Gaugelet 1.0 <span aria-hidden="true">↓</span>
+            Download Gaugelet <span aria-hidden="true">↓</span>
           </a>
           <a className="button button-secondary" href="https://github.com/lammworks/Gaugelet">View source</a>
         </div>

@@ -1,8 +1,8 @@
-# Install Gaugelet 1.0
+# Install Gaugelet
 
-Gaugelet 1.0 supports Apple-silicon Macs running macOS 14 or newer. It requires the official Codex CLI and an authenticated Codex session.
+Gaugelet supports Apple-silicon Macs running macOS 14 or newer. It requires the official Codex CLI and an authenticated Codex session.
 
-The community release is ad-hoc code-signed and is not notarized by Apple. Gatekeeper will block the first launch; use the documented macOS **Open Anyway** control after verifying the download.
+Starting with version 1.1.1, Gaugelet is Developer ID signed by **Ondemand Technologies Inc (Lavanda)**, team `K567UPF58F`, and notarized by Apple. The app and DMG are signed, and Apple’s notarization ticket is stapled to the DMG. Open the installed app normally; no **Open Anyway** exception is expected.
 
 ## 1. Prepare Codex
 
@@ -40,17 +40,15 @@ Continue only if the result is `Gaugelet.dmg: OK`. A mismatch means the bytes ar
 
 Do not run Gaugelet from the mounted DMG. Launch at Login is disabled for a DMG, a translocated copy, or another unsupported location.
 
-## 4. Use macOS Open Anyway
+## 4. Open Gaugelet
 
-1. Double-click `/Applications/Gaugelet.app` once. macOS is expected to block this non-notarized build.
-2. Open **System Settings → Privacy & Security**.
-3. Scroll to the Security section and choose **Open Anyway** for Gaugelet.
-4. Authenticate with Touch ID or your Mac password.
-5. Confirm **Open** in the final dialog.
+1. Double-click `/Applications/Gaugelet.app`.
+2. If macOS asks whether to open an app downloaded from the internet, confirm **Open**.
+3. Look for Gaugelet in the menu bar.
 
-If **Open Anyway** is not visible, verify Gaugelet is in `/Applications`, try opening it again, and return immediately to Privacy & Security.
+If macOS says the developer cannot be verified, the app is damaged, or it cannot check for malicious software, do not bypass the warning. Confirm you downloaded version 1.1.1 or newer from the canonical release, recheck the checksum, and follow [SUPPORT.md](SUPPORT.md) with the exact message.
 
-Do not run `xattr` or other commands that remove quarantine. The macOS control preserves the visible security decision and limits the exception to the app you chose.
+Do not run `xattr` or other commands that remove quarantine.
 
 ## 5. Confirm live usage
 
@@ -85,7 +83,11 @@ Gaugelet does not require Full Disk Access, Accessibility access, Screen Recordi
 
 Gaugelet uses Sparkle to check a signed GitHub Releases feed. If you accept automatic checks, they normally run about once per day. You can also choose **Check for Updates**. Every update requires confirmation; silent installation is disabled.
 
-Sparkle authenticates updates but does not change the initial app's non-notarized status.
+Sparkle authenticates updates with Gaugelet’s update key. Apple Developer ID signing and notarization provide separate checks on the distributed app.
+
+## Historical community releases: 1.0.x and 1.1.0
+
+These older releases were ad-hoc signed and not notarized. Prefer the latest signed release. If you intentionally need a historical community build, first verify its checksum, move it to Applications, and try opening it. Then use **System Settings → Privacy & Security → Open Anyway**, authenticate, and confirm **Open**. This exception applies only to those older community builds; it is not the installation path for 1.1.1 or newer.
 
 ## Uninstall
 

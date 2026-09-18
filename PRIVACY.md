@@ -50,7 +50,7 @@ If you approve an update, Sparkle downloads the selected DMG from GitHub Release
 
 Gaugelet disables Sparkle system profiling. It does not deliberately attach a hardware or macOS system profile to update requests. Gaugelet also disables silent update installation: download and installation require user confirmation.
 
-Sparkle verifies the signed update feed and enclosure before extraction. Update authentication does not make the initial Gaugelet download Apple-notarized.
+Sparkle verifies the signed update feed and enclosure before extraction. Its update authentication is separate from Apple’s Developer ID signing and notarization checks, which apply to official Gaugelet releases starting with 1.1.1.
 
 ## Local storage
 

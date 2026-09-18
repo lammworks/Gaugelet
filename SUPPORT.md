@@ -15,14 +15,18 @@ Opening ChatGPT in a browser does not sign the Codex CLI in. ChatGPT plan, billi
 
 ## Installation and Gatekeeper
 
-Gaugelet 1.0 is ad-hoc signed and not notarized. A first launch is expected to be blocked by Gatekeeper.
+Gaugelet 1.1.1 and newer are Developer ID signed by **Ondemand Technologies Inc (Lavanda)**, team `K567UPF58F`, and notarized by Apple. Open the installed app normally and confirm the ordinary first-open prompt if shown.
 
-1. Try to open `/Applications/Gaugelet.app` once.
-2. Open **System Settings → Privacy & Security**.
-3. In the Security section, choose **Open Anyway** for Gaugelet.
-4. Authenticate and confirm **Open**.
+If macOS reports an unverified developer, a damaged app, or an inability to check for malicious software:
 
-Do not remove quarantine with Terminal commands. If **Open Anyway** is absent, confirm the app is in `/Applications`, try opening it again, and return immediately to Privacy & Security. Re-download only from the [canonical latest release](https://github.com/lammworks/Gaugelet/releases/latest) if the checksum does not match.
+1. Stop and preserve the exact warning text.
+2. Confirm the version is 1.1.1 or newer and the app is in `/Applications`.
+3. Compare the DMG with its published checksum. If it does not match, delete the download and re-download only from the [canonical latest release](https://github.com/lammworks/Gaugelet/releases/latest).
+4. If the warning persists with a matching checksum, report the problem with your macOS version and download source.
+
+Do not remove quarantine with Terminal commands or use **Open Anyway** to bypass a warning on the signed release.
+
+**Historical community releases:** versions 1.0.x and 1.1.0 were ad-hoc signed and not notarized. Their first-launch **Privacy & Security → Open Anyway** instructions are retained in the historical community releases section of the [installation guide](INSTALL.md). Prefer upgrading to the latest signed release.
 
 Gaugelet does not require Full Disk Access, Accessibility access, Screen Recording, or access to Documents, Desktop, or Downloads. Decline an unexpected broad privacy request and report it.
 

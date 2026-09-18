@@ -16,7 +16,11 @@ Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Code
   <a href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg"><strong> Download Gaugelet for Mac</strong></a>
 </p>
 
-> Gaugelet 1.0 is a free community release for Apple-silicon Macs. It is ad-hoc signed, not notarized by Apple, and may require **System Settings → Privacy & Security → Open Anyway** on first launch.
+> Gaugelet 1.1.1 is free for Apple-silicon Macs. It is Developer ID signed by **Ondemand Technologies Inc (Lavanda)** and notarized by Apple. Install it in Applications and open it normally.
+
+## New in 1.1.1
+
+The first Developer ID signed and Apple-notarized Gaugelet release uses Lavanda’s signing identity, **Ondemand Technologies Inc**, team `K567UPF58F`. The app and DMG are signed, with Apple’s notarization ticket stapled to the DMG; the initial installation no longer needs the historical **Open Anyway** exception. Sparkle continues to authenticate updates with Gaugelet’s existing update key.
 
 ## New in 1.1.0
 
@@ -62,7 +66,7 @@ Gaugelet does not use the OpenAI Platform Usage API. That API measures API-platf
 1. Install the official Codex CLI, run `codex`, and complete sign-in.
 2. Download [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg) and [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg.sha256). Verify the checksum before opening the app.
 3. Open the DMG and drag Gaugelet to **Applications**. Eject the DMG afterward.
-4. Open Gaugelet from Applications. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway**.
+4. Open Gaugelet from Applications and confirm the ordinary first-open prompt if macOS displays one. If macOS reports that the developer cannot be verified or the app is damaged, stop and follow the [support guide](SUPPORT.md).
 5. Click the Gaugelet icon in the menu bar, confirm the source is live, and optionally enable Launch at Login and notifications in Settings.
 
 See [INSTALL.md](INSTALL.md) for the complete installation and troubleshooting path. Gaugelet does not require Full Disk Access, Accessibility, Screen Recording, or access to your Documents, Desktop, or Downloads.
@@ -102,7 +106,7 @@ Usage notifications are optional. Gaugelet asks macOS for permission and alerts 
 
 Gaugelet uses [Sparkle](https://sparkle-project.org/) to check the project’s signed GitHub Releases feed. Automatic checking is offered by the app and, if accepted, runs about once every 24 hours. You can also choose **Check for Updates**. Every download and installation requires confirmation.
 
-Sparkle authenticates updates after installation; it does not make the initial app Apple-notarized. See [SECURITY.md](SECURITY.md) for the trust model.
+Sparkle authenticates updates separately from Apple’s Developer ID signing and notarization checks. See [SECURITY.md](SECURITY.md) for the trust model and the status of older community releases.
 
 ## Limitations worth knowing
 
