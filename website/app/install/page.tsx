@@ -5,7 +5,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 
 export const metadata: Metadata = {
   title: "Install",
-  description: "Install Gaugelet 1.0 on an Apple-silicon Mac, including Gatekeeper’s Open Anyway step.",
+  description: "Install the Developer ID signed and Apple-notarized Gaugelet app on an Apple-silicon Mac.",
   alternates: { canonical: "/install" },
 };
 

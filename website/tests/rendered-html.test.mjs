@@ -25,7 +25,7 @@ test("server-renders the launch landing page", async () => {
   assert.match(html, /Download for Mac/);
   assert.match(html, /Simulate heavy session/);
   assert.match(html, /Switch themes\. Burn the allowance/);
-  assert.match(html, /Download Gaugelet 1\.0/);
+  assert.match(html, /Download Gaugelet/);
   assert.match(html, /Five-minute refresh/);
   assert.match(html, /Seven in-app themes\. One clear gauge/);
   assert.match(html, /menu bar keeps a clean adaptive half-gauge/);
@@ -50,7 +50,7 @@ test("server-renders the launch landing page", async () => {
 });
 
 for (const route of [
-  ["/install", "Install Gaugelet 1.0"],
+  ["/install", "Install Gaugelet"],
   ["/privacy", "Gaugelet privacy notice"],
   ["/support", "Gaugelet support"],
   ["/security", "Gaugelet security policy"],

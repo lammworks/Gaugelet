@@ -89,8 +89,8 @@ PACKAGED_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${APP_
 "${SCRIPT_DIR}/verify-sparkle-key-gates.sh" --configuration-only --plist "${APP_INFO}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_INFO}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_INFO}")"
-[[ "${VERSION}" == "1.1.0" && "${BUILD}" == "3" ]] \
-    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.1.0 (3)"
+[[ "${VERSION}" == "1.1.1" && "${BUILD}" == "4" ]] \
+    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.1.1 (4)"
 [[ "$(/usr/bin/lipo -archs "${EXECUTABLE}")" == "arm64" ]] \
     || fail "Gaugelet main executable must contain only arm64"
 RPATHS="$(/usr/bin/otool -l "${EXECUTABLE}" \
@@ -115,6 +115,12 @@ if [[ "${GAUGELET_EXPECT_DEVELOPER_ID:-0}" == "1" ]]; then
         || fail "expected Developer ID Application signing"
     /usr/bin/grep -F 'runtime' "${SIGNATURE_REPORT}" >/dev/null \
         || fail "Developer ID build is missing hardened runtime"
+    /usr/bin/grep -F 'Timestamp=' "${SIGNATURE_REPORT}" >/dev/null \
+        || fail "Developer ID build is missing a secure timestamp"
+    /usr/bin/xcrun stapler validate "${RELEASE_ROOT}/Gaugelet.dmg"
+    /usr/sbin/spctl --assess --type execute --verbose=4 "${APP_PATH}"
+    /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=4 \
+        "${RELEASE_ROOT}/Gaugelet.dmg"
 else
     /usr/bin/grep -F 'Signature=adhoc' "${SIGNATURE_REPORT}" >/dev/null \
         || fail "community app is not ad-hoc signed"
@@ -183,7 +189,7 @@ fi
 
 print -- "Release artifact verified: Gaugelet ${VERSION} (${BUILD}), arm64 app, universal Sparkle internals, strict nested signatures"
 if [[ "${GAUGELET_EXPECT_DEVELOPER_ID:-0}" == "1" ]]; then
-    print -- "Gatekeeper: Developer ID/notarization path expected and checked separately"
+    print -- "Gatekeeper: mounted app and final DMG accepted; DMG staple validated"
 else
     print -- "Gatekeeper: rejection confirmed as expected for the non-notarized community build; this is not Apple verification"
 fi

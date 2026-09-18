@@ -2,6 +2,15 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
+## [1.1.1] - 2026-09-17
+
+Build `4` — Developer ID signing and Apple notarization.
+
+- First Developer ID signed release, using **Ondemand Technologies Inc (Lavanda)**, team `K567UPF58F`, with hardened runtime enabled.
+- Developer ID signed app and DMG, notarized by Apple with the ticket stapled to the DMG; normal first launch replaces the historical community build’s **Open Anyway** exception.
+- Retains Gaugelet’s existing Sparkle update key and user-confirmed update flow.
+- Installation, support, and security documentation distinguish the signed release from historical ad-hoc builds.
+
 ## [1.1.0] - 2026-09-11
 
 Build `3` — allowance and account activity.
@@ -78,6 +87,7 @@ Build `1` — first public release under the Gaugelet name.
 
 The internal 0.9 line established the Gaugelet name, native menu-bar interface, demo states, icon themes, notification threshold, and initial release-hardening checks. It was not the public 1.0 release and did not include the final Sparkle channel.
 
+[1.1.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.1
 [1.1.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.0
 [1.0.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.0
