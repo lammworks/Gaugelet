@@ -1,12 +1,27 @@
+import { readFileSync } from "node:fs";
 import { sites } from "@openai/sites-vite-plugin";
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
-const { d1, r2 } = hostingConfig;
+// `.openai/hosting.json` holds a deployment-specific project id, so it stays
+// untracked. Absent locally or in CI, the site builds with no D1/R2 bindings.
+function readHostingConfig(): { d1: string | null; r2: string | null } {
+  try {
+    const raw = readFileSync(
+      new URL("./.openai/hosting.json", import.meta.url),
+      "utf8",
+    );
+    const parsed = JSON.parse(raw) as { d1?: string | null; r2?: string | null };
+    return { d1: parsed.d1 ?? null, r2: parsed.r2 ?? null };
+  } catch {
+    return { d1: null, r2: null };
+  }
+}
+
+const { d1, r2 } = readHostingConfig();
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";

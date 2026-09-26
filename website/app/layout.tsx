@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const siteURL = new URL("https://gaugelet.wonkytonks.chatgpt.site");
+// The canonical public origin. Override with SITE_URL when building for a
+// preview host so the deployed origin is never hard-coded in the source.
+const siteURL = new URL(
+  process.env.SITE_URL ?? "https://gaugelet.lammworks.com",
+);
 
 export const metadata: Metadata = {
   metadataBase: siteURL,
