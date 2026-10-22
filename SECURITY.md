@@ -4,7 +4,7 @@
 
 | Version | Security fixes |
 | --- | --- |
-| Latest published `1.0.x` | Supported |
+| Latest published `1.x` | Supported |
 | Older releases, development builds, forks, and third-party redistributions | Best effort only |
 
 ## Report a vulnerability privately
@@ -39,15 +39,17 @@ Gaugelet:
 - Operates no analytics, telemetry, usage-history, account, or LammWorks backend.
 - Uses Sparkle to retrieve a signed update feed and user-approved full-DMG updates from GitHub Releases.
 
-The trust boundary includes the user's Mac, installed Codex CLI, OpenAI services, GitHub and its network providers, the public source repository, build workflows, the maintainer's Sparkle Ed25519 key, and the shipped Sparkle framework.
+The trust boundary includes the user's Mac, installed Codex CLI, OpenAI services, GitHub and its network providers, Apple’s Developer ID and notarization services, the public source repository, build workflows, the maintainer’s Developer ID and Sparkle Ed25519 keys, and the shipped Sparkle framework.
 
 ## Distribution model
 
-Gaugelet 1.0 community releases are ad-hoc code-signed and are not Apple Developer ID signed or notarized. Gatekeeper rejection on first launch is expected; users must follow the documented **Privacy & Security → Open Anyway** path. The release must never be described as Apple-verified.
+Starting with Gaugelet 1.1.1 (build 4), official releases are Developer ID signed by **Ondemand Technologies Inc (Lavanda)**, team `K567UPF58F`, with hardened runtime enabled, and notarized by Apple. The app and DMG are signed. Apple notarizes the DMG and its contained app, and the notarization ticket is stapled to the DMG. Release publication requires accepted notarization results and successful signature, ticket, and Gatekeeper verification of the final artifact. Notarization is an automated security check, not an endorsement or a guarantee that the app is free of vulnerabilities.
+
+**Historical community releases:** versions 1.0.x and 1.1.0 were ad-hoc signed and not notarized. Gatekeeper rejection on their first launch was expected, and the documented **Privacy & Security → Open Anyway** exception applied to those builds. Their status does not change when a newer signed release is published.
 
 Sparkle's Ed25519 verification authenticates Gaugelet updates after installation. It does not replace Developer ID signing, notarization, or the initial-download checksum. Users should obtain the initial DMG only from `lammworks/Gaugelet` and compare `Gaugelet.dmg` with `Gaugelet.dmg.sha256`.
 
-Every published artifact is tied to a public commit, includes a SHA-256 digest, and is tested before release.
+Every published artifact is tied to a public commit and includes a SHA-256 digest. Release evidence records the checks actually performed; signing and notarization do not substitute for runtime testing.
 
 ## Update-key and channel incidents
 

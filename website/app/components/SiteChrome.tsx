@@ -23,7 +23,7 @@ export function SiteHeader() {
         <a href="https://github.com/lammworks/Gaugelet">Source</a>
         <a
           className="header-download"
-          href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"
+          href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg"
         >
           <span className="apple-mark" aria-hidden="true"></span>
           Download for Mac

@@ -2,7 +2,40 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
-## [1.0.0] - Unreleased
+## [1.1.1] - 2026-09-17
+
+Build `4` — Developer ID signing and Apple notarization.
+
+- First Developer ID signed release, using **Ondemand Technologies Inc (Lavanda)**, team `K567UPF58F`, with hardened runtime enabled.
+- Developer ID signed app and DMG, notarized by Apple with the ticket stapled to the DMG; normal first launch replaces the historical community build’s **Open Anyway** exception.
+- Retains Gaugelet’s existing Sparkle update key and user-confirmed update flow.
+- Installation, support, and security documentation distinguish the signed release from historical ad-hoc builds.
+
+## [1.1.0] - 2026-09-11
+
+Build `3` — allowance and account activity.
+
+- Stable shared, weekly, and special-bucket rows, with a selectable menu-bar counter. Missing pinned counters stay unavailable.
+- Independent threshold and cap alerts for every returned window; optional recovery alerts require a fresh successful reading. Account changes do not generate crossing alerts when identifiers are supplied.
+- Earned reset count, earliest known expiry, and scoped credit balances. Manage usage opens OpenAI; no redemption or purchase actions.
+- Refresh on open when at least a minute old, on wake, and at the first 30-second timer tick after an expected reset; background polling stays five minutes.
+- Optional account token activity showing the last seven reported dates and lifetime tokens. Missing data stays unavailable; no local history database.
+- Retain up to 128 allowance windows and report overflow explicitly.
+- Task-status monitoring remains unsupported: a standalone App Server only sees its own loaded tasks.
+- No model/speed guidance or additional inference calls.
+
+## [1.0.1] - 2026-08-22
+
+Build `2` — focused menu-bar presentation update.
+
+### Changed
+
+- Replaced the themed menu-bar card with a compact, monochrome half-gauge based on the supplied 16-point SVG.
+- The new menu-bar glyph uses macOS template rendering so it adapts cleanly to light and dark menu bars.
+- Themes remain available for Gaugelet’s in-app presentation; Finder and notifications continue to use the stable blue Core icon.
+- Download links now use GitHub’s stable latest-release asset URLs.
+
+## [1.0.0] - 2026-08-21
 
 Build `1` — first public release under the Gaugelet name.
 
@@ -17,7 +50,7 @@ Build `1` — first public release under the Gaugelet name.
 - Optional low-allowance and limit-reached macOS notifications for live data.
 - Launch at Login through `SMAppService.mainApp`, with install-location and macOS-approval guidance.
 - Seven menu-bar and in-app icon themes, while Finder and notification surfaces retain the stable blue Core icon with transparent corners.
-- Sparkle 2.9.5 update checks using a signed appcast and Ed25519-authenticated full-DMG updates.
+- Sparkle 2.9.6 update checks using a signed appcast and Ed25519-authenticated full-DMG updates.
 - User confirmation for update download and installation; silent installation and system profiling are disabled.
 - Privacy, support, security, contribution, installation, community-release, notarized-release, and launch documentation.
 
@@ -54,6 +87,9 @@ Build `1` — first public release under the Gaugelet name.
 
 The internal 0.9 line established the Gaugelet name, native menu-bar interface, demo states, icon themes, notification threshold, and initial release-hardening checks. It was not the public 1.0 release and did not include the final Sparkle channel.
 
+[1.1.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.1
+[1.1.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.0
+[1.0.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.0
 
 Built by LammWorks.

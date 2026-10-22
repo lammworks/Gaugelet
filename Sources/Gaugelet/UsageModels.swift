@@ -117,6 +117,7 @@ struct GaugeletUsageAlert: Equatable, Sendable {
     enum Kind: String, Sendable {
         case runningLow
         case limitReached
+        case restored
     }
 
     let kind: Kind
@@ -131,19 +132,35 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
     let remainingPercent: Int
     let resetDate: Date?
     let blockedReason: String?
+    let bucketID: String?
+    let windowDurationMins: Int?
 
     init(
         id: String,
         name: String,
         remainingPercent: Int,
         resetDate: Date?,
-        blockedReason: String? = nil
+        blockedReason: String? = nil,
+        bucketID: String? = nil,
+        windowDurationMins: Int? = nil
     ) {
         self.id = id
         self.name = name
         self.remainingPercent = remainingPercent
         self.resetDate = resetDate
         self.blockedReason = blockedReason
+        self.bucketID = bucketID
+        self.windowDurationMins = windowDurationMins
+    }
+
+    var isShared: Bool { ["codex", "overall"].contains(bucketID?.lowercased() ?? "") }
+
+    var compactName: String {
+        if isShared {
+            let window = name.components(separatedBy: " · ").last ?? name
+            return "\(bucketID?.lowercased() == "overall" ? "Overall" : "Shared") · \(window)"
+        }
+        return name
     }
 
     var clampedRemainingPercent: Int {
@@ -212,6 +229,27 @@ struct UsageSnapshot: Equatable, Sendable {
     let source: UsageSource
     let sourceDetail: String
 
+    var accountID: String? = nil
+    var resetCredits: EarnedResetCredits? = nil
+    var credits: [CreditBalance] = []
+    var omittedLimitCount: Int = 0
+
+    // Ordering never depends on consumption or reset timestamps.
+    var orderedLimits: [UsageLimit] {
+        limits.sorted {
+            if $0.isShared != $1.isShared { return $0.isShared }
+            let leftBucket = $0.bucketID ?? $0.id
+            let rightBucket = $1.bucketID ?? $1.id
+            if leftBucket != rightBucket { return leftBucket < rightBucket }
+            return $0.id < $1.id
+        }
+    }
+
+    func menuBarLimit(pinnedID: String) -> UsageLimit? {
+        if !pinnedID.isEmpty { return limits.first { $0.id == pinnedID } }
+        return orderedLimits.first
+    }
+
     var closestLimit: UsageLimit? {
         limits.min {
             if $0.effectiveRemainingPercent == $1.effectiveRemainingPercent {
@@ -279,55 +317,101 @@ enum UsageState: Equatable, Sendable {
 }
 
 enum UsageNotificationPolicy {
-    static func alert(
-        previous: UsageSnapshot?,
-        current: UsageSnapshot?,
-        warningThreshold: Int
-    ) -> GaugeletUsageAlert? {
-        guard
-            let previous,
-            let current,
-            previous.source == .codexAppServer,
-            current.source == .codexAppServer,
-            previous.isSignedIn,
-            current.isSignedIn,
-            let previousLimit = previous.closestLimit,
-            let currentLimit = current.closestLimit,
-            previousLimit.id == currentLimit.id
-        else {
-            return nil
-        }
-
-        let identifier = "gaugelet.usage.\(currentLimit.id)"
-        if currentLimit.isBlocked && !previousLimit.isBlocked {
-            return GaugeletUsageAlert(
-                kind: .limitReached,
-                identifier: identifier,
-                title: "Usage limit reached",
-                body: "\(currentLimit.displayName) is unavailable until it resets."
-            )
-        }
-
+    static func alerts(
+        previous: UsageSnapshot?, current: UsageSnapshot?, warningThreshold: Int,
+        notifyOnRestore: Bool = false
+    ) -> [GaugeletUsageAlert] {
+        guard let previous, let current,
+              previous.source == .codexAppServer, current.source == .codexAppServer,
+              previous.isSignedIn, current.isSignedIn, previous.accountID == current.accountID
+        else { return [] }
         let threshold = min(max(warningThreshold, 5), 50)
-        if
-            !currentLimit.isBlocked,
-            currentLimit.clampedRemainingPercent <= threshold,
-            previousLimit.clampedRemainingPercent > threshold
-        {
-            return GaugeletUsageAlert(
-                kind: .runningLow,
-                identifier: identifier,
-                title: "Usage running low",
-                body: "\(currentLimit.displayName) has \(currentLimit.clampedRemainingPercent)% remaining."
-            )
+        return current.orderedLimits.compactMap { limit in
+            guard let old = previous.limits.first(where: { $0.id == limit.id }) else { return nil }
+            let kind: GaugeletUsageAlert.Kind
+            let title: String
+            let body: String
+            if limit.isBlocked && !old.isBlocked {
+                kind = .limitReached
+                title = "Usage limit reached"
+                body = "\(limit.compactName): \(limit.blockedReason ?? "allowance exhausted")."
+            } else if !limit.isBlocked && limit.clampedRemainingPercent <= threshold && old.clampedRemainingPercent > threshold {
+                kind = .runningLow
+                title = "Usage running low"
+                body = "\(limit.compactName) has \(limit.clampedRemainingPercent)% remaining."
+            } else if notifyOnRestore && old.isBlocked && !limit.isBlocked {
+                kind = .restored
+                title = "Allowance restored"
+                body = "\(limit.compactName) is available again · \(limit.clampedRemainingPercent)% left."
+            } else { return nil }
+            return GaugeletUsageAlert(kind: kind, identifier: "gaugelet.usage.\(limit.id).\(kind.rawValue)", title: title, body: body)
         }
-
-        return nil
     }
+
+    static func alert(previous: UsageSnapshot?, current: UsageSnapshot?, warningThreshold: Int) -> GaugeletUsageAlert? {
+        alerts(previous: previous, current: current, warningThreshold: warningThreshold).first
+    }
+}
+
+struct EarnedResetCredits: Equatable, Sendable {
+    let availableCount: Int
+    let earliestKnownExpiry: Date?
+}
+
+struct CreditBalance: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let balance: String?
+    let hasCredits: Bool
+    let unlimited: Bool
+
+    var displayValue: String {
+        if unlimited { return "Unlimited" }
+        if let balance { return balance }
+        return hasCredits ? "Available" : "None available"
+    }
+}
+
+struct ActivityDay: Identifiable, Equatable, Sendable {
+    let date: String
+    let tokens: Int
+    var id: String { date }
+}
+
+struct UsageActivity: Equatable, Sendable {
+    let days: [ActivityDay]?
+    let lifetimeTokens: Int?
+    let lastUpdated: Date
+}
+
+enum ActivityState: Equatable {
+    case disabled
+    case loading
+    case available(UsageActivity)
+    case unavailable
 }
 
 enum DemoUsageProvider {
     static func snapshot(for scenario: DemoScenario, now: Date = Date()) -> UsageSnapshot {
+        var value = baseSnapshot(for: scenario, now: now)
+        guard scenario != .signedOut else { return value }
+        value.resetCredits = EarnedResetCredits(availableCount: 2, earliestKnownExpiry: now.addingTimeInterval(7 * 86_400))
+        value.credits = [CreditBalance(id: "demo", name: "Demo", balance: "40", hasCredits: true, unlimited: false)]
+        return value
+    }
+
+    static func activity(now: Date = Date()) -> UsageActivity {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let values = [12000, 34000, 18000, 0, 48000, 21000, 28000]
+        return UsageActivity(days: values.enumerated().map { index, tokens in
+            ActivityDay(date: formatter.string(from: now.addingTimeInterval(Double(index - 6) * 86_400)), tokens: tokens)
+        }, lifetimeTokens: 161000, lastUpdated: now)
+    }
+
+    private static func baseSnapshot(for scenario: DemoScenario, now: Date = Date()) -> UsageSnapshot {
         switch scenario {
         case .comfortable:
             UsageSnapshot(
@@ -335,21 +419,24 @@ enum DemoUsageProvider {
                 limits: [
                     UsageLimit(
                         id: "five-hour",
-                        name: "5-hour limit",
+                        name: "Shared · 5-hour",
                         remainingPercent: 68,
-                        resetDate: now.addingTimeInterval(2 * 60 * 60 + 14 * 60)
+                        resetDate: now.addingTimeInterval(2 * 60 * 60 + 14 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "weekly",
-                        name: "Weekly limit",
+                        name: "Shared · Weekly",
                         remainingPercent: 42,
-                        resetDate: now.addingTimeInterval(3 * 24 * 60 * 60 + 8 * 60 * 60)
+                        resetDate: now.addingTimeInterval(3 * 24 * 60 * 60 + 8 * 60 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "codex-spark-weekly",
                         name: "Codex Spark · Weekly",
                         remainingPercent: 88,
-                        resetDate: now.addingTimeInterval(5 * 24 * 60 * 60 + 3 * 60 * 60)
+                        resetDate: now.addingTimeInterval(5 * 24 * 60 * 60 + 3 * 60 * 60),
+                        bucketID: "spark"
                     )
                 ],
                 lastUpdated: now,
@@ -365,21 +452,24 @@ enum DemoUsageProvider {
                 limits: [
                     UsageLimit(
                         id: "five-hour",
-                        name: "5-hour limit",
+                        name: "Shared · 5-hour",
                         remainingPercent: 16,
-                        resetDate: now.addingTimeInterval(47 * 60)
+                        resetDate: now.addingTimeInterval(47 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "weekly",
-                        name: "Weekly limit",
+                        name: "Shared · Weekly",
                         remainingPercent: 31,
-                        resetDate: now.addingTimeInterval(2 * 24 * 60 * 60 + 5 * 60 * 60)
+                        resetDate: now.addingTimeInterval(2 * 24 * 60 * 60 + 5 * 60 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "codex-spark-weekly",
                         name: "Codex Spark · Weekly",
                         remainingPercent: 64,
-                        resetDate: now.addingTimeInterval(4 * 24 * 60 * 60 + 9 * 60 * 60)
+                        resetDate: now.addingTimeInterval(4 * 24 * 60 * 60 + 9 * 60 * 60),
+                        bucketID: "spark"
                     )
                 ],
                 lastUpdated: now,
@@ -395,21 +485,24 @@ enum DemoUsageProvider {
                 limits: [
                     UsageLimit(
                         id: "five-hour",
-                        name: "5-hour limit",
+                        name: "Shared · 5-hour",
                         remainingPercent: 0,
-                        resetDate: now.addingTimeInterval(28 * 60)
+                        resetDate: now.addingTimeInterval(28 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "weekly",
-                        name: "Weekly limit",
+                        name: "Shared · Weekly",
                         remainingPercent: 28,
-                        resetDate: now.addingTimeInterval(2 * 24 * 60 * 60)
+                        resetDate: now.addingTimeInterval(2 * 24 * 60 * 60),
+                        bucketID: "codex"
                     ),
                     UsageLimit(
                         id: "codex-spark-weekly",
                         name: "Codex Spark · Weekly",
                         remainingPercent: 52,
-                        resetDate: now.addingTimeInterval(4 * 24 * 60 * 60)
+                        resetDate: now.addingTimeInterval(4 * 24 * 60 * 60),
+                        bucketID: "spark"
                     )
                 ],
                 lastUpdated: now,

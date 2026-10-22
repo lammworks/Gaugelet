@@ -89,8 +89,8 @@ PACKAGED_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${APP_
 "${SCRIPT_DIR}/verify-sparkle-key-gates.sh" --configuration-only --plist "${APP_INFO}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_INFO}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_INFO}")"
-[[ "${VERSION}" == "1.0.0" && "${BUILD}" == "1" ]] \
-    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.0.0 (1)"
+[[ "${VERSION}" == "1.1.1" && "${BUILD}" == "4" ]] \
+    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.1.1 (4)"
 [[ "$(/usr/bin/lipo -archs "${EXECUTABLE}")" == "arm64" ]] \
     || fail "Gaugelet main executable must contain only arm64"
 RPATHS="$(/usr/bin/otool -l "${EXECUTABLE}" \
@@ -115,6 +115,12 @@ if [[ "${GAUGELET_EXPECT_DEVELOPER_ID:-0}" == "1" ]]; then
         || fail "expected Developer ID Application signing"
     /usr/bin/grep -F 'runtime' "${SIGNATURE_REPORT}" >/dev/null \
         || fail "Developer ID build is missing hardened runtime"
+    /usr/bin/grep -F 'Timestamp=' "${SIGNATURE_REPORT}" >/dev/null \
+        || fail "Developer ID build is missing a secure timestamp"
+    /usr/bin/xcrun stapler validate "${RELEASE_ROOT}/Gaugelet.dmg"
+    /usr/sbin/spctl --assess --type execute --verbose=4 "${APP_PATH}"
+    /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=4 \
+        "${RELEASE_ROOT}/Gaugelet.dmg"
 else
     /usr/bin/grep -F 'Signature=adhoc' "${SIGNATURE_REPORT}" >/dev/null \
         || fail "community app is not ad-hoc signed"
@@ -132,6 +138,12 @@ for extended_attribute in com.apple.FinderInfo com.apple.ResourceFork; do
     fi
 done
 [[ -s "${APP_PATH}/Contents/Resources/AppIcon.icns" ]] || fail "compiled AppIcon.icns is missing"
+PACKAGED_MENU_BAR_ICON="${APP_PATH}/Contents/Resources/GaugeletMenuBar.svg"
+SOURCE_MENU_BAR_ICON="${ROOT_DIR}/Assets/GaugeletMenuBar.svg"
+[[ -s "${PACKAGED_MENU_BAR_ICON}" ]] || fail "packaged menu-bar SVG is missing"
+/usr/bin/cmp "${SOURCE_MENU_BAR_ICON}" "${PACKAGED_MENU_BAR_ICON}" \
+    || fail "packaged menu-bar SVG differs from the committed source"
+/usr/bin/xmllint --noout "${PACKAGED_MENU_BAR_ICON}"
 ICON_RENDER="${RELEASE_ROOT}/.app-icon-verification.tmp.$$.png"
 /usr/bin/sips -s format png "${APP_PATH}/Contents/Resources/AppIcon.icns" \
     --out "${ICON_RENDER}" >/dev/null
@@ -177,7 +189,7 @@ fi
 
 print -- "Release artifact verified: Gaugelet ${VERSION} (${BUILD}), arm64 app, universal Sparkle internals, strict nested signatures"
 if [[ "${GAUGELET_EXPECT_DEVELOPER_ID:-0}" == "1" ]]; then
-    print -- "Gatekeeper: Developer ID/notarization path expected and checked separately"
+    print -- "Gatekeeper: mounted app and final DMG accepted; DMG staple validated"
 else
     print -- "Gatekeeper: rejection confirmed as expected for the non-notarized community build; this is not Apple verification"
 fi

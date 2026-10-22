@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
+// Mirrors app/layout.tsx so the expected origin is asserted from one source of
+// truth instead of a hard-coded deployment host.
+const siteOrigin = new URL(
+  process.env.SITE_URL ?? "https://gaugelet.lammworks.com",
+).origin;
+
+function escaped(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -25,9 +35,11 @@ test("server-renders the launch landing page", async () => {
   assert.match(html, /Download for Mac/);
   assert.match(html, /Simulate heavy session/);
   assert.match(html, /Switch themes\. Burn the allowance/);
-  assert.match(html, /Download Gaugelet 1\.0/);
+  assert.match(html, /Download Gaugelet/);
   assert.match(html, /Five-minute refresh/);
-  assert.match(html, /Seven themes\. One glanceable gauge/);
+  assert.match(html, /Seven in-app themes\. One clear gauge/);
+  assert.match(html, /menu bar keeps a clean adaptive half-gauge/);
+  assert.match(html, /src="\/images\/gaugelet-menubar\.svg"/);
   assert.match(html, /Made for Apple silicon/);
   assert.match(html, /Local-first privacy/);
   assert.match(html, /Independent maker in Panama/);
@@ -39,16 +51,16 @@ test("server-renders the launch landing page", async () => {
   assert.doesNotMatch(html, /Coffee link coming before launch/);
   assert.match(html, /OpenAI’s enforced limits remain authoritative/);
   assert.match(html, /Built by LammWorks/);
-  assert.match(html, /<link rel="canonical" href="https:\/\/gaugelet\.wonkytonks\.chatgpt\.site"/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${escaped(siteOrigin)}"`));
   assert.match(html, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml"/);
-  assert.match(html, /<meta property="og:image" content="https:\/\/gaugelet\.wonkytonks\.chatgpt\.site\/images\/gaugelet-social\.jpg"/);
+  assert.match(html, new RegExp(`<meta property="og:image" content="${escaped(siteOrigin)}/images/gaugelet-social\\.jpg"`));
   assert.match(html, /<meta name="twitter:card" content="summary_large_image"/);
   assert.doesNotMatch(html, /real[- ]time|exact credits|always exactly three/i);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site/);
 });
 
 for (const route of [
-  ["/install", "Install Gaugelet 1.0"],
+  ["/install", "Install Gaugelet"],
   ["/privacy", "Gaugelet privacy notice"],
   ["/support", "Gaugelet support"],
   ["/security", "Gaugelet security policy"],
@@ -62,8 +74,22 @@ for (const route of [
     assert.match(html, /Built by LammWorks/);
     assert.match(
       html,
-      new RegExp(`<link rel="canonical" href="https://gaugelet\\.wonkytonks\\.chatgpt\\.site${route[0]}"`),
+      new RegExp(`<link rel="canonical" href="${escaped(siteOrigin)}${route[0]}"`),
     );
+  });
+}
+
+for (const route of [
+  ["/gallery-themes", "Make the gauge feel at home"],
+  ["/gallery-notification", "Get the warning before the work stops"],
+]) {
+  test(`server-renders the Product Hunt canvas at ${route[0]}`, async () => {
+    const response = await render(route[0]);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, new RegExp(route[1], "i"));
+    assert.match(html, /src="\/images\/gaugelet-menubar\.svg"/);
+    assert.match(html, /src="\/images\/gaugelet-icon\.png"/);
   });
 }
 
@@ -80,11 +106,14 @@ test("keeps canonical Markdown synchronized and release assets local", async () 
   await Promise.all([
     "gaugelet-dashboard.png",
     "gaugelet-icon.png",
+    "gaugelet-menubar.svg",
     "launch-orbit-background.png",
     "gaugelet-social.jpg",
     "product-hunt-thumbnail.jpg",
     "product-hunt-gallery-1.jpg",
     "product-hunt-gallery-2.jpg",
+    "product-hunt-gallery-3-themes.jpg",
+    "product-hunt-gallery-4-notification.jpg",
   ].map((filename) => access(new URL(`../public/images/${filename}`, import.meta.url))));
 });
 

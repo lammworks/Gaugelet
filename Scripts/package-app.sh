@@ -6,6 +6,7 @@ SCRIPT_DIR="${0:A:h}"
 ROOT_DIR="${SCRIPT_DIR:h}"
 INFO_PLIST="${ROOT_DIR}/Packaging/Info.plist"
 ICON_FILE="${ROOT_DIR}/Packaging/Gaugelet.icns"
+MENU_BAR_ICON="${ROOT_DIR}/Assets/GaugeletMenuBar.svg"
 ASSET_CATALOG="${ROOT_DIR}/Assets/Assets.xcassets"
 ICON_VARIANT_ROOT="${ROOT_DIR}/Assets/IconVariants"
 OUTPUT_ROOT="${GAUGELET_OUTPUT_ROOT:-${ROOT_DIR}/build/product}"
@@ -28,6 +29,7 @@ fail() {
 [[ -f "${ROOT_DIR}/Package.swift" ]] || fail "missing Package.swift"
 [[ -f "${ROOT_DIR}/Package.resolved" ]] || fail "missing Package.resolved"
 [[ -f "${ICON_FILE}" ]] || fail "missing ${ICON_FILE}; run Scripts/generate-icon.sh"
+[[ -f "${MENU_BAR_ICON}" ]] || fail "missing ${MENU_BAR_ICON}"
 [[ -d "${ASSET_CATALOG}" ]] || fail "missing ${ASSET_CATALOG}"
 /usr/bin/plutil -lint "${INFO_PLIST}" >/dev/null
 "${SCRIPT_DIR}/verify-sparkle-pin.py"
@@ -206,6 +208,8 @@ fi
 "${STRIP}" -S "${PACKAGED_EXECUTABLE}"
 
 /usr/bin/install -m 644 "${INFO_PLIST}" "${STAGING_APP}/Contents/Info.plist"
+/usr/bin/install -m 644 "${MENU_BAR_ICON}" \
+    "${STAGING_APP}/Contents/Resources/GaugeletMenuBar.svg"
 for style in "${ICON_STYLES[@]}"; do
     /usr/bin/sips -z 256 256 \
         "${ICON_VARIANT_ROOT}/GaugeletIcon-${style}-1024.png" \

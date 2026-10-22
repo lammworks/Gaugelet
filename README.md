@@ -4,15 +4,31 @@
 
 ![Gaugelet — ChatGPT and Codex allowance in your Mac menu bar](website/public/images/gaugelet-social.jpg)
 
-Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Codex allowance**. See the windows that matter before you choose a bigger model, deeper reasoning, or a faster pace—and before the work suddenly stops.
-
-[**Download for Mac →**](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg) · [Official site](https://Gaugelet.lammworks.com) · [See all releases](https://github.com/lammworks/Gaugelet/releases) · [Read the install guide](INSTALL.md)
-
 <p>
-  <a href="https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg"><strong> Download Gaugelet 1.0</strong></a>
+  <a href="https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"><img src="https://img.shields.io/badge/%E2%98%95%20Buy%20me%20a%20coffee-Support%20Gaugelet-F5B841?style=flat-square&logo=paypal&logoColor=white" alt="Buy me a coffee and support Gaugelet"></a>
 </p>
 
-> Gaugelet 1.0 is a free community release for Apple-silicon Macs. It is ad-hoc signed, not notarized by Apple, and may require **System Settings → Privacy & Security → Open Anyway** on first launch.
+Gaugelet is a beautiful, native macOS menu-bar gauge for your **ChatGPT and Codex allowance**. See the windows that matter before you choose a bigger model, deeper reasoning, or a faster pace—and before the work suddenly stops.
+
+[**Download for Mac →**](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg) · [Official site](https://Gaugelet.lammworks.com) · [See all releases](https://github.com/lammworks/Gaugelet/releases) · [Read the install guide](INSTALL.md)
+
+<p>
+  <a href="https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg"><strong> Download Gaugelet for Mac</strong></a>
+</p>
+
+> Gaugelet 1.1.1 is free for Apple-silicon Macs. It is Developer ID signed by **Ondemand Technologies Inc (Lavanda)** and notarized by Apple. Install it in Applications and open it normally.
+
+## New in 1.1.1
+
+The first Developer ID signed and Apple-notarized Gaugelet release uses Lavanda’s signing identity, **Ondemand Technologies Inc**, team `K567UPF58F`. The app and DMG are signed, with Apple’s notarization ticket stapled to the DMG; the initial installation no longer needs the historical **Open Anyway** exception. Sparkle continues to authenticate updates with Gaugelet’s existing update key.
+
+## New in 1.1.0
+
+Gaugelet now includes stable allowance rows, menu-bar pinning, alerts per window, optional recovery alerts, earned resets and credit details, and opt-in token activity.
+
+Use the pin beside a counter to keep it in the menu bar. A missing pinned counter displays a dash until it returns or you clear it. **Manage usage** opens OpenAI’s controls; Gaugelet does not redeem resets or purchase credits. Enable **Token activity** in Settings for the last seven reported dates and lifetime tokens. Activity is separate from allowance and stays in memory.
+
+Gaugelet refreshes on wake, on open when at least a minute old, and after expected resets, alongside five-minute background polling. Upstream caching still applies. Monitoring live task status across other clients or environments is not supported.
 
 ## Why Gaugelet?
 
@@ -23,7 +39,7 @@ Gaugelet gives you a quiet little signal before you commit to the heavy option. 
 - **ChatGPT + Codex allowance at a glance** — see the usage windows returned by your local Codex session.
 - **The important counters stay visible** — overall, weekly, and special-model windows appear when they are available, with additional returned windows preserved too.
 - **Refreshes every five minutes** — current enough for decisions, honest enough not to pretend it is real-time.
-- **Seven beautiful themes** — light, blue, green, amber, rose, purple, and Dracula, with a Core blue identity for macOS system surfaces.
+- **Seven beautiful in-app themes** — Core, Dracula, Ember, Moss, Monochrome, 8-Bit, and Pride, paired with a clean adaptive menu-bar gauge.
 - **Native for Apple silicon** — made for the Mac, lives in the menu bar, and stays out of your way.
 - **Private by design** — no Gaugelet account, analytics, advertising, usage-history database, or LammWorks backend.
 
@@ -48,20 +64,22 @@ Gaugelet does not use the OpenAI Platform Usage API. That API measures API-platf
 ## Install in five minutes
 
 1. Install the official Codex CLI, run `codex`, and complete sign-in.
-2. Download [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg) and [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/download/v1.0.0/Gaugelet.dmg.sha256). Verify the checksum before opening the app.
+2. Download [`Gaugelet.dmg`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg) and [`Gaugelet.dmg.sha256`](https://github.com/lammworks/Gaugelet/releases/latest/download/Gaugelet.dmg.sha256). Verify the checksum before opening the app.
 3. Open the DMG and drag Gaugelet to **Applications**. Eject the DMG afterward.
-4. Open Gaugelet from Applications. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway**.
+4. Open Gaugelet from Applications and confirm the ordinary first-open prompt if macOS displays one. If macOS reports that the developer cannot be verified or the app is damaged, stop and follow the [support guide](SUPPORT.md).
 5. Click the Gaugelet icon in the menu bar, confirm the source is live, and optionally enable Launch at Login and notifications in Settings.
 
 See [INSTALL.md](INSTALL.md) for the complete installation and troubleshooting path. Gaugelet does not require Full Disk Access, Accessibility, Screen Recording, or access to your Documents, Desktop, or Downloads.
 
-## A small app from an independent developer
+## Keep Gaugelet moving
 
 Gaugelet is built and maintained independently by LammWorks. It is free, open source, and intentionally focused: one small Mac app that helps you use the plan you already pay for with a little more intention.
 
-If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanent place in your menu bar—[buy me a coffee](https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4). It helps fund the time spent maintaining releases, testing updates, and keeping the experience polished.
+If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanent place in your menu bar—your coffee helps keep the releases, testing, and polish moving.
 
-**[☕ Buy me a coffee →](https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4)**
+<p align="center">
+  <a href="https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"><img src="https://img.shields.io/badge/%E2%98%95%20Buy%20me%20a%20coffee-Support%20independent%20Mac%20software-F5B841?style=for-the-badge&logo=paypal&logoColor=white" alt="Buy me a coffee and support independent Mac software"></a>
+</p>
 
 ## How it works
 
@@ -88,7 +106,7 @@ Usage notifications are optional. Gaugelet asks macOS for permission and alerts 
 
 Gaugelet uses [Sparkle](https://sparkle-project.org/) to check the project’s signed GitHub Releases feed. Automatic checking is offered by the app and, if accepted, runs about once every 24 hours. You can also choose **Check for Updates**. Every download and installation requires confirmation.
 
-Sparkle authenticates updates after installation; it does not make the initial app Apple-notarized. See [SECURITY.md](SECURITY.md) for the trust model.
+Sparkle authenticates updates separately from Apple’s Developer ID signing and notarization checks. See [SECURITY.md](SECURITY.md) for the trust model and the status of older community releases.
 
 ## Limitations worth knowing
 

@@ -174,7 +174,7 @@ final class UsageModelsTests: XCTestCase {
         }
     }
 
-    func testBoundsReturnedWindowsAfterSortingMostConstrainedAndSanitizesDisplayNames() throws {
+    func testRetainsAdditionalWindowsAndSanitizesDisplayNames() throws {
         var buckets: [String: Any] = [:]
         for index in 0..<10 {
             buckets["bucket-\(index)"] = [
@@ -191,8 +191,8 @@ final class UsageModelsTests: XCTestCase {
 
         let snapshot = try CodexUsageProvider.parseSnapshot(from: response)
 
-        XCTAssertEqual(snapshot.limits.count, 12)
-        XCTAssertEqual(snapshot.otherLimits.count, 11)
+        XCTAssertEqual(snapshot.limits.count, 20)
+        XCTAssertEqual(snapshot.otherLimits.count, 19)
         XCTAssertFalse(snapshot.otherLimits.contains { $0.id == snapshot.closestLimit?.id })
         XCTAssertEqual(snapshot.closestLimit?.id, "bucket-9-secondary")
         XCTAssertEqual(snapshot.closestLimit?.remainingPercent, 90)

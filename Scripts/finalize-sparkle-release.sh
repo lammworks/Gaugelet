@@ -47,7 +47,7 @@ case "${ARTIFACT_KIND}" in
     community-release)
         EXPECT_DEVELOPER_ID=0
         ;;
-    'dormant Developer ID/notarized')
+    'Developer ID/notarized'|'dormant Developer ID/notarized')
         EXPECT_DEVELOPER_ID=1
         ;;
     *)
