@@ -3,7 +3,7 @@ import Sparkle
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private let store = UsageStore()
     private let notificationManager = GaugeletNotificationManager()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,8 +19,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var hoverResponder: StatusHoverResponder?
     private var openWorkItem: DispatchWorkItem?
     private var closeWorkItem: DispatchWorkItem?
-    private var refreshTimer: Timer?
-    private var statusAppearanceObservation: NSKeyValueObservation?
+    private let refreshTimer = DeadlineTimer()
+    private let popoverVisibility = UsagePresentationVisibility()
+    private let qaVisibility = UsagePresentationVisibility()
+    private var isSleeping = false
+    private var isTerminating = false
+    private lazy var powerMonitor = UsagePowerMonitor { [weak self] policy in
+        self?.store.refreshPolicy = policy
+    }
+    private let statusPresenter = StatusItemPresenter()
+    private let countdownTimer = DeadlineTimer()
     private var qaWindow: NSWindow?
     private var isPinned = false
 
@@ -33,23 +41,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         store.onStatusPresentationChange = { [weak self] in
             self?.updateStatusItem()
         }
+        store.onRefreshScheduleChange = { [weak self] in
+            self?.scheduleAutomaticRefresh()
+        }
         store.onNotificationPreferenceChanged = { [weak self] enabled in
             self?.notificationPreferenceChanged(enabled)
         }
         store.onUsageAlert = { [weak self] alert in
             self?.deliverUsageAlert(alert)
         }
+        powerMonitor.start()
+        store.refreshPolicy = powerMonitor.currentPolicy
         updateStatusItem()
         store.refresh()
-        refreshTimer = Timer.scheduledTimer(
-            timeInterval: 30,
-            target: self,
-            selector: #selector(refreshUsage),
-            userInfo: nil,
-            repeats: true
-        )
 
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
+        let workspaceNotifications = NSWorkspace.shared.notificationCenter
+        workspaceNotifications.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        workspaceNotifications.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
 
         if ProcessInfo.processInfo.environment["GAUGELET_OPEN_ON_LAUNCH"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -59,10 +67,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
         openWorkItem?.cancel()
         closeWorkItem?.cancel()
-        refreshTimer?.invalidate()
-        statusAppearanceObservation?.invalidate()
+        refreshTimer.cancel()
+        powerMonitor.stop()
+        countdownTimer.cancel()
+        EnergyDiagnostics.shared.report()
         store.cancelRefresh()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -74,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             mode: .loading,
             isDark: isStatusBarDark(button)
         )
+        EnergyDiagnostics.shared.record(.imageAssignments)
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
         button.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
@@ -94,17 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         button.addTrackingArea(trackingArea)
         hoverResponder = responder
-        statusAppearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.updateStatusItem()
-            }
-        }
         qaLog("status item configured")
     }
 
     private func configurePopover() {
         let rootView = UsagePopoverRoot(
             store: store,
+            visibility: popoverVisibility,
             onHoverChanged: { [weak self] isHovering in
                 self?.popoverHoverChanged(isHovering)
             },
@@ -125,46 +133,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func updateStatusItem() {
-        guard let button = statusItem.button else { return }
-        let isDark = isStatusBarDark(button)
-        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state, pinnedID: store.pinnedLimitID)
-        button.image = GaugeletAppIcon.menuBarImage(
-            for: store.iconStyle,
-            mode: iconState.mode,
-            percent: iconState.percent,
-            isDark: isDark
+        guard !isSleeping, !isTerminating, let button = statusItem.button else { return }
+        let now = Date()
+        let presentation = StatusItemPresentation.make(
+            state: store.state,
+            pinnedID: store.pinnedLimitID,
+            showPercentage: store.showPercentageInMenuBar,
+            now: now
         )
-
-        let state = store.state
-
-        switch state {
-        case .loading:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — connecting to Codex"
-            button.setAccessibilityLabel("Gaugelet, connecting to Codex")
-
-        case .unavailable:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — live usage unavailable"
-            button.setAccessibilityLabel("Gaugelet, live usage unavailable")
-
-        case .live(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  \(value)" : ""
-            button.toolTip = "Gaugelet — \(snapshot.menuBarLimit(pinnedID: store.pinnedLimitID)?.compactName ?? "Pinned limit unavailable")"
-            button.setAccessibilityLabel(accessibilityLabel(for: snapshot))
-
-        case .stale(let snapshot, _, _):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  ! \(value)" : "  !"
-            button.toolTip = "Gaugelet — showing stale usage; open for details"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), stale")
-
-        case .demo(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  D \(value)" : "  D"
-            button.toolTip = "Gaugelet — demo data"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), demo data")
+        EnergyDiagnostics.shared.record(.statusUpdates)
+        let mutations = statusPresenter.apply(presentation, to: button)
+        EnergyDiagnostics.shared.record(.statusMutations, count: mutations)
+        countdownTimer.set(deadline: StatusItemPresentation.nextUpdateDate(
+            state: store.state,
+            pinnedID: store.pinnedLimitID,
+            showPercentage: store.showPercentageInMenuBar,
+            now: now
+        )) { [weak self] in
+            self?.updateStatusItem()
         }
     }
 
@@ -207,34 +193,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    private func statusValue(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn, let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else { return "—" }
-        if closest.blockedReason != nil { return "blocked" }
-        if closest.isCapped {
-            return closest.resetDate?.gaugeletCountdownValue() ?? "0%"
+    private func scheduleAutomaticRefresh() {
+        guard !isSleeping, !isTerminating else {
+            refreshTimer.cancel()
+            return
         }
-        return "\(closest.clampedRemainingPercent)%"
+        refreshTimer.set(
+            deadline: store.nextAutomaticRefreshDate,
+            tolerance: store.nextAutomaticRefreshTolerance
+        ) { [weak self] in
+            guard let self, !self.isSleeping, !self.isTerminating else { return }
+            EnergyDiagnostics.shared.record(.automaticRefreshes)
+            self.store.refreshIfDue()
+            self.scheduleAutomaticRefresh()
+        }
     }
 
-    private func accessibilityLabel(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn else { return "Gaugelet, not connected" }
-        guard let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
-            return "Gaugelet, selected allowance unavailable"
-        }
-        if let blockedReason = closest.blockedReason {
-            return "Gaugelet, \(closest.displayName), \(blockedReason.lowercased())"
-        }
-        return "Gaugelet, \(closest.displayName), \(closest.clampedRemainingPercent) percent left"
-    }
-
-    @objc
-    private func refreshUsage() {
-        store.refreshIfDue()
-        updateStatusItem()
+    @objc private func willSleep() {
+        isSleeping = true
+        refreshTimer.cancel()
+        countdownTimer.cancel()
+        openWorkItem?.cancel()
+        closeWorkItem?.cancel()
+        popoverVisibility.isVisible = false
+        qaVisibility.isVisible = false
+        // Bounded in-flight requests and stale-data expiry keep their existing lifecycle.
     }
 
     @objc private func didWake() {
+        powerMonitor.refresh()
+        isSleeping = false
         store.refreshIfNeeded(maximumAge: 0)
+        updateStatusItem()
+        popoverVisibility.isVisible = popover.isShown
+        updateQAVisibility()
+        scheduleAutomaticRefresh()
     }
 
     @objc
@@ -310,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func showQAPreviewWindow() {
         let rootView = UsagePopoverRoot(
             store: store,
+            visibility: qaVisibility,
             onHoverChanged: { _ in },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates()
@@ -325,6 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             defer: false
         )
 
+        window.delegate = self
         window.title = "Gaugelet Preview"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -340,6 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         qaWindow = window
+        updateQAVisibility()
         qaLog("QA preview window shown (visible: \(window.isVisible))")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak window] in
@@ -348,9 +344,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    func popoverDidShow(_ notification: Notification) {
+        popoverVisibility.isVisible = !isSleeping
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        popoverVisibility.isVisible = false
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        popoverVisibility.isVisible = false
         isPinned = false
         closeWorkItem?.cancel()
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        updateQAVisibility()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        qaVisibility.isVisible = false
+    }
+
+    private func updateQAVisibility() {
+        qaVisibility.isVisible = !isSleeping && qaWindow?.isVisible == true
+            && qaWindow?.occlusionState.contains(.visible) == true
     }
 
     private func qaLog(_ message: String) {

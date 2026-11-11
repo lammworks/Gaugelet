@@ -88,11 +88,39 @@ final class UsageStore: ObservableObject {
     var menuBarLimit: UsageLimit? { snapshot?.menuBarLimit(pinnedID: pinnedLimitID) }
 
     @Published private(set) var isRefreshing = false
+    @Published var refreshPolicy: UsageRefreshPolicy = .acPower {
+        didSet {
+            guard refreshPolicy != oldValue else { return }
+            onRefreshScheduleChange?()
+        }
+    }
 
     var onStatusPresentationChange: (() -> Void)?
+    var onRefreshScheduleChange: (() -> Void)?
     var onNotificationPreferenceChanged: ((Bool) -> Void)?
     var onUsageAlert: ((GaugeletUsageAlert) -> Void)?
     var snapshot: UsageSnapshot? { state.snapshot }
+
+    var nextAutomaticRefreshDate: Date? { nextAutomaticRefreshDeadline?.date }
+
+    var nextAutomaticRefreshTolerance: TimeInterval {
+        guard let deadline = nextAutomaticRefreshDeadline else { return 0 }
+        return deadline.isReset ? 0 : 5
+    }
+
+    private var nextAutomaticRefreshDeadline: (date: Date, isReset: Bool)? {
+        guard sourcePreference == .codexAppServer, !isRefreshing else { return nil }
+        guard let lastRefreshAttempt else { return (now(), false) }
+
+        let periodicDate = lastRefreshAttempt.addingTimeInterval(refreshPolicy.interval)
+        // A reset is consumed by the first attempt started at or after it,
+        // even if Codex returns a cached reset date or the request fails.
+        let resetDate = snapshot?.limits.compactMap(\.resetDate)
+            .filter { $0 > lastRefreshAttempt }
+            .min()
+        if let resetDate, resetDate <= periodicDate { return (resetDate, true) }
+        return (periodicDate, false)
+    }
 
     private let defaults: UserDefaults
     private let provider: any UsageProviding
@@ -149,17 +177,12 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshIfDue() {
-        guard !isRefreshing, sourcePreference == .codexAppServer else { return }
-        let current = now()
-        let lastAttempt = lastRefreshAttempt ?? .distantPast
-        let resetDue = snapshot?.limits.contains {
-            guard let reset = $0.resetDate else { return false }
-            return reset > lastAttempt && reset <= current
-        } ?? false
-        if resetDue || current.timeIntervalSince(lastAttempt) >= 5 * 60 { refresh() }
+        guard let deadline = nextAutomaticRefreshDate, deadline <= now() else { return }
+        refresh()
     }
 
     func refresh() {
+        defer { onRefreshScheduleChange?() }
         lastRefreshAttempt = now()
         activityTask?.cancel()
         activityGeneration &+= 1
@@ -199,6 +222,7 @@ final class UsageStore: ObservableObject {
         generation: UInt64
     ) {
         guard generation == refreshGeneration, sourcePreference == .codexAppServer else { return }
+        defer { onRefreshScheduleChange?() }
 
         isRefreshing = false
         refreshTask = nil
@@ -300,6 +324,7 @@ final class UsageStore: ObservableObject {
             self.publish(.unavailable(
                 errorMessage: "\(errorMessage) The last successful reading is older than 15 minutes."
             ))
+            self.onRefreshScheduleChange?()
         }
     }
 
@@ -323,6 +348,7 @@ final class UsageStore: ObservableObject {
     }
 
     func cancelRefresh() {
+        defer { onRefreshScheduleChange?() }
         activityGeneration &+= 1
         activityTask?.cancel()
         activityTask = nil

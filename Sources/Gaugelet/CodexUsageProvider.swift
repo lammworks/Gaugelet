@@ -110,6 +110,7 @@ struct CodexUsageProvider: UsageProviding, Sendable {
 
         do {
             try process.run()
+            EnergyDiagnostics.shared.record(method == "account/rateLimits/read" ? .allowanceLaunches : .activityLaunches)
         } catch {
             throw CodexUsageError.launchFailed(error.localizedDescription)
         }

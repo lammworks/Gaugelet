@@ -1,6 +1,6 @@
 # Gaugelet privacy notice
 
-Last updated: September 11, 2026
+Last updated: November 10, 2026
 
 ## Summary
 
@@ -65,6 +65,10 @@ Gaugelet stores preferences with the standard macOS preferences system, includin
 - Sparkle update-check preference, managed by Sparkle.
 
 Live percentages, account identifiers, credit/reset details, and token activity remain in process memory. A last successful reading may remain in memory briefly enough to be shown as explicitly stale after a refresh failure. Gaugelet does not maintain a persistent usage-history database.
+
+Gaugelet reads macOS power-source and Low Power Mode state locally to choose its background refresh interval. This does not add a network destination or upload power-state information.
+
+Optional local energy diagnostics are enabled only by launching Gaugelet with `GAUGELET_ENERGY_DIAGNOSTICS=1`. These counters contain fixed event names and counts, without usage values, account content, credentials, or file paths. They stay in memory and are printed to standard error when Gaugelet quits normally. Gaugelet does not upload them or create a diagnostics file; a terminal or another process capturing standard error may retain the output.
 
 When notifications are enabled, Gaugelet asks macOS to deliver a local notification when any live window crosses the selected threshold or reaches its limit. With restoration alerts enabled, it also notifies after a fresh reading confirms a blocked window is available again. Demo and stale readings never trigger an alert. Gaugelet does not send notification content to LammWorks.
 

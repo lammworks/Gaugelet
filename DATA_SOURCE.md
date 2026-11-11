@@ -4,7 +4,7 @@ Gaugelet defaults to a read-only integration with the installed Codex CLI's App 
 
 The official [Codex App Server documentation](https://learn.chatgpt.com/docs/app-server) documents `account/rateLimits/read`, including `usedPercent`, `windowDurationMins`, and `resetsAt`. Gaugelet derives remaining allowance as `100 - usedPercent` and does not attempt to estimate a number of messages.
 
-Gaugelet automatically asks Codex for a fresh snapshot every five minutes, and the refresh button can request one sooner. The prominent gauge is the most constrained returned window; the dashboard also retains and labels the other distinct overall/model windows returned by Codex.
+Gaugelet automatically asks Codex for a fresh snapshot every five minutes on AC power, ten minutes on battery or UPS, and fifteen minutes in Low Power Mode. Low Power Mode takes precedence over the power source. Routine background refresh allows up to five seconds of scheduling tolerance, and macOS may defer it further. Gaugelet also refreshes on wake, on open when the reading is at least a minute old, and after expected resets; the refresh button can request a reading sooner. Alerts depend on fresh readings and may arrive later at the longer intervals. The prominent gauge is the most constrained returned window; the dashboard also retains and labels the other distinct overall/model windows returned by Codex.
 
 ## Privacy boundaries
 

@@ -59,6 +59,20 @@ Notifications are optional. Enable them in Gaugelet Settings, then approve the m
 3. Confirm Focus or notification-summary settings are not suppressing the alert.
 4. Remember that demo and stale readings never notify; an alert occurs only when a live window crosses the configured threshold or reaches its limit.
 
+Alerts depend on fresh readings. Background refresh runs every five minutes on AC power, ten minutes on battery or UPS, and fifteen minutes whenever Low Power Mode is enabled, so alerts can arrive later on battery. Manual refresh, wake, open after at least a minute, and expected-reset refreshes remain available. Routine background refresh allows up to five seconds of scheduling tolerance; macOS may defer it further.
+
+## Battery use and local diagnostics
+
+If Gaugelet uses significant energy while idle, note the power source, Low Power Mode state, whether the popover is open, and whether the menu-bar counter is counting down to a reset. Compare a few minutes of idle use with the popover closed before reporting the issue.
+
+For local event counters, quit the existing Gaugelet copy and launch it from Terminal:
+
+```bash
+GAUGELET_ENERGY_DIAGNOSTICS=1 /Applications/Gaugelet.app/Contents/MacOS/Gaugelet
+```
+
+Quit Gaugelet normally to print the counters to Terminal. They record event names and counts for refreshes, process launches, status updates, and dashboard ticks. They contain no usage values, account content, credentials, or file paths, and are not uploaded. Diagnostics are off unless this environment variable is set. Review any additional Terminal output before sharing it.
+
 ## Updates
 
 Gaugelet uses Sparkle and GitHub Releases. Update checks require access to `github.com`. If checking fails, verify normal GitHub access, retry later, and review the [Releases page](https://github.com/lammworks/Gaugelet/releases) in your browser. Do not install an update from an unrelated mirror.
