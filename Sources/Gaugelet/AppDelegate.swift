@@ -20,7 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var openWorkItem: DispatchWorkItem?
     private var closeWorkItem: DispatchWorkItem?
     private var refreshTimer: Timer?
-    private var statusAppearanceObservation: NSKeyValueObservation?
+    private let statusPresenter = StatusItemPresenter()
+    private let countdownTimer = DeadlineTimer()
     private var qaWindow: NSWindow?
     private var isPinned = false
 
@@ -62,7 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openWorkItem?.cancel()
         closeWorkItem?.cancel()
         refreshTimer?.invalidate()
-        statusAppearanceObservation?.invalidate()
+        countdownTimer.cancel()
+        EnergyDiagnostics.shared.report()
         store.cancelRefresh()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -74,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             mode: .loading,
             isDark: isStatusBarDark(button)
         )
+        EnergyDiagnostics.shared.record(.imageAssignments)
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
         button.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
@@ -94,11 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         button.addTrackingArea(trackingArea)
         hoverResponder = responder
-        statusAppearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.updateStatusItem()
-            }
-        }
         qaLog("status item configured")
     }
 
@@ -126,45 +124,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
-        let isDark = isStatusBarDark(button)
-        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state, pinnedID: store.pinnedLimitID)
-        button.image = GaugeletAppIcon.menuBarImage(
-            for: store.iconStyle,
-            mode: iconState.mode,
-            percent: iconState.percent,
-            isDark: isDark
+        let now = Date()
+        let presentation = StatusItemPresentation.make(
+            state: store.state,
+            pinnedID: store.pinnedLimitID,
+            showPercentage: store.showPercentageInMenuBar,
+            now: now
         )
-
-        let state = store.state
-
-        switch state {
-        case .loading:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — connecting to Codex"
-            button.setAccessibilityLabel("Gaugelet, connecting to Codex")
-
-        case .unavailable:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — live usage unavailable"
-            button.setAccessibilityLabel("Gaugelet, live usage unavailable")
-
-        case .live(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  \(value)" : ""
-            button.toolTip = "Gaugelet — \(snapshot.menuBarLimit(pinnedID: store.pinnedLimitID)?.compactName ?? "Pinned limit unavailable")"
-            button.setAccessibilityLabel(accessibilityLabel(for: snapshot))
-
-        case .stale(let snapshot, _, _):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  ! \(value)" : "  !"
-            button.toolTip = "Gaugelet — showing stale usage; open for details"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), stale")
-
-        case .demo(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  D \(value)" : "  D"
-            button.toolTip = "Gaugelet — demo data"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), demo data")
+        EnergyDiagnostics.shared.record(.statusUpdates)
+        let mutations = statusPresenter.apply(presentation, to: button)
+        EnergyDiagnostics.shared.record(.statusMutations, count: mutations)
+        countdownTimer.set(deadline: StatusItemPresentation.nextUpdateDate(
+            state: store.state,
+            pinnedID: store.pinnedLimitID,
+            showPercentage: store.showPercentageInMenuBar,
+            now: now
+        )) { [weak self] in
+            self?.updateStatusItem()
         }
     }
 
@@ -207,30 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    private func statusValue(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn, let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else { return "—" }
-        if closest.blockedReason != nil { return "blocked" }
-        if closest.isCapped {
-            return closest.resetDate?.gaugeletCountdownValue() ?? "0%"
-        }
-        return "\(closest.clampedRemainingPercent)%"
-    }
-
-    private func accessibilityLabel(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn else { return "Gaugelet, not connected" }
-        guard let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
-            return "Gaugelet, selected allowance unavailable"
-        }
-        if let blockedReason = closest.blockedReason {
-            return "Gaugelet, \(closest.displayName), \(blockedReason.lowercased())"
-        }
-        return "Gaugelet, \(closest.displayName), \(closest.clampedRemainingPercent) percent left"
-    }
-
     @objc
     private func refreshUsage() {
         store.refreshIfDue()
-        updateStatusItem()
     }
 
     @objc private func didWake() {
