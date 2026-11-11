@@ -63,6 +63,7 @@ private extension EnvironmentValues {
 
 struct UsagePopoverRoot: View {
     @ObservedObject var store: UsageStore
+    @ObservedObject var visibility: UsagePresentationVisibility
     let onHoverChanged: (Bool) -> Void
     let onCheckForUpdates: () -> Void
     let usesStandaloneGlass: Bool
@@ -72,12 +73,14 @@ struct UsagePopoverRoot: View {
 
     init(
         store: UsageStore,
+        visibility: UsagePresentationVisibility,
         onHoverChanged: @escaping (Bool) -> Void,
         onCheckForUpdates: @escaping () -> Void,
         usesStandaloneGlass: Bool,
         initiallyShowsSettings: Bool = false
     ) {
         self.store = store
+        self.visibility = visibility
         self.onHoverChanged = onHoverChanged
         self.onCheckForUpdates = onCheckForUpdates
         self.usesStandaloneGlass = usesStandaloneGlass
@@ -109,7 +112,7 @@ struct UsagePopoverRoot: View {
                         )
                             .transition(.opacity)
                     } else {
-                        UsageDashboard(store: store)
+                        UsageDashboard(store: store, isVisible: visibility.isVisible)
                             .transition(.opacity)
                     }
                 }
@@ -257,6 +260,7 @@ private struct GaugeletGlassBackground: View {
 
 private struct UsageDashboard: View {
     @ObservedObject var store: UsageStore
+    let isVisible: Bool
     @Environment(\.gaugeletAccent) private var accent
 
     var body: some View {
@@ -282,8 +286,13 @@ private struct UsageDashboard: View {
 
             case .live(let snapshot), .demo(let snapshot), .stale(let snapshot, _, _):
                 if snapshot.isSignedIn {
-                    TimelineView(.periodic(from: .now, by: 30)) { context in
-                        dashboardContent(snapshot: snapshot, now: context.date)
+                    if isVisible {
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            visibleDashboardContent(snapshot: snapshot, now: context.date)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
+                    } else {
+                        dashboardContent(snapshot: snapshot, now: Date())
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 } else {
@@ -292,6 +301,11 @@ private struct UsageDashboard: View {
             }
         }
         .padding(16)
+    }
+
+    private func visibleDashboardContent(snapshot: UsageSnapshot, now: Date) -> some View {
+        EnergyDiagnostics.shared.record(.dashboardTicks)
+        return dashboardContent(snapshot: snapshot, now: now)
     }
 
     private func dashboardContent(snapshot: UsageSnapshot, now: Date) -> some View {
@@ -306,7 +320,7 @@ private struct UsageDashboard: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if store.isRefreshing {
+                if store.isRefreshing && isVisible {
                     ProgressView().controlSize(.small)
                 } else {
                     Button { store.refresh() } label: {
@@ -387,7 +401,7 @@ private struct UsageDashboard: View {
             }
             .scrollIndicators(.visible)
             stateNotice
-            footer(snapshot: snapshot)
+            footer(snapshot: snapshot, now: now)
         }
     }
 
@@ -398,7 +412,11 @@ private struct UsageDashboard: View {
             case .disabled:
                 EmptyView()
             case .loading:
-                ProgressView().controlSize(.small)
+                if isVisible {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Checking activity…").foregroundStyle(.secondary)
+                }
             case .unavailable:
                 Text("Activity unavailable").foregroundStyle(.secondary)
             case .available(let activity):
@@ -450,7 +468,7 @@ private struct UsageDashboard: View {
             ZStack {
                 Circle()
                     .fill((offersRetry ? GaugeletPalette.coral : accent).opacity(0.13))
-                if showsProgress {
+                if showsProgress && isVisible {
                     ProgressView()
                         .controlSize(.regular)
                         .tint(accent)
@@ -582,14 +600,14 @@ private struct UsageDashboard: View {
             .accessibilityHint(store.state.sourceDetail)
     }
 
-    private func footer(snapshot: UsageSnapshot) -> some View {
+    private func footer(snapshot: UsageSnapshot, now: Date) -> some View {
         HStack(spacing: 4) {
             Text(store.state.badgeTitle == "STALE" ? "Last live check" : "Checked")
-            Text(snapshot.lastUpdated, style: .relative)
+            Text(UsagePresentationText.elapsedCheckValue(lastUpdated: snapshot.lastUpdated, now: now))
             Text("ago")
             Spacer()
             Label("Read-only", systemImage: "lock")
-                .help("ChatGPT Work and Codex allowance. Five-minute background refresh; refreshes on wake, open, and reset.")
+                .help(UsagePresentationText.readOnlyHelp(policy: store.refreshPolicy))
         }
         .font(.system(size: 10))
         .foregroundStyle(.secondary)

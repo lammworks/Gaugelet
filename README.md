@@ -28,7 +28,7 @@ Gaugelet now includes stable allowance rows, menu-bar pinning, alerts per window
 
 Use the pin beside a counter to keep it in the menu bar. A missing pinned counter displays a dash until it returns or you clear it. **Manage usage** opens OpenAI’s controls; Gaugelet does not redeem resets or purchase credits. Enable **Token activity** in Settings for the last seven reported dates and lifetime tokens. Activity is separate from allowance and stays in memory.
 
-Gaugelet refreshes on wake, on open when at least a minute old, and after expected resets, alongside five-minute background polling. Upstream caching still applies. Monitoring live task status across other clients or environments is not supported.
+Gaugelet refreshes on wake, on open when at least a minute old, and after expected resets. Automatic background refresh follows macOS power state: every five minutes on AC power, ten minutes on battery or UPS, and fifteen minutes whenever Low Power Mode is enabled. Routine background refresh allows up to five seconds of scheduling tolerance; macOS may defer it further. Manual refresh remains available at any time. Upstream caching still applies. Monitoring live task status across other clients or environments is not supported.
 
 ## Why Gaugelet?
 
@@ -38,7 +38,7 @@ Gaugelet gives you a quiet little signal before you commit to the heavy option. 
 
 - **ChatGPT + Codex allowance at a glance** — see the usage windows returned by your local Codex session.
 - **The important counters stay visible** — overall, weekly, and special-model windows appear when they are available, with additional returned windows preserved too.
-- **Refreshes every five minutes** — current enough for decisions, honest enough not to pretend it is real-time.
+- **Battery-aware refresh** — checks less often on battery and in Low Power Mode, with manual refresh when you need it.
 - **Seven beautiful in-app themes** — Core, Dracula, Ember, Moss, Monochrome, 8-Bit, and Pride, paired with a clean adaptive menu-bar gauge.
 - **Native for Apple silicon** — made for the Mac, lives in the menu bar, and stays out of your way.
 - **Private by design** — no Gaugelet account, analytics, advertising, usage-history database, or LammWorks backend.
@@ -51,7 +51,7 @@ Should this task get the strongest model? Is there enough room for one more long
 
 Gaugelet helps you make those micro-adjustments deliberately. It reads the rate-limit information returned by the local Codex App Server and presents it in a calm, glanceable interface.
 
-The numbers are informative, not magical: Gaugelet refreshes automatically every five minutes, and the Codex response can drift from the ChatGPT interface. During heavy use, either display may move faster or slower. OpenAI’s enforced limits remain authoritative.
+The numbers are informative, not magical: Gaugelet refreshes automatically at intervals that follow your Mac’s power state, and the Codex response can drift from the ChatGPT interface. During heavy use, either display may move faster or slower. OpenAI’s enforced limits remain authoritative.
 
 ## Requirements
 
@@ -100,7 +100,7 @@ See [PRIVACY.md](PRIVACY.md) for the complete data boundary.
 
 Launch at Login uses macOS’s supported main-app login-item service. Install Gaugelet in **Applications** first. If macOS requires approval, Gaugelet offers **Open Login Items Settings**; return to Gaugelet afterward so it can refresh the status.
 
-Usage notifications are optional. Gaugelet asks macOS for permission and alerts only for live data crossing your selected threshold or reaching a limit. Demo and stale readings do not trigger alerts. Manage permission in **System Settings → Notifications → Gaugelet**.
+Usage notifications are optional. Gaugelet asks macOS for permission and alerts only for live data crossing your selected threshold or reaching a limit. Demo and stale readings do not trigger alerts. Alerts depend on fresh readings and can arrive later with the longer battery and Low Power Mode intervals. Manage permission in **System Settings → Notifications → Gaugelet**.
 
 ## Updates
 
@@ -112,7 +112,7 @@ Sparkle authenticates updates separately from Apple’s Developer ID signing and
 
 - Codex App Server is an experimental upstream interface and may change without notice.
 - Returned windows, labels, percentages, reset times, and model-specific limits depend on your account and the upstream response.
-- Five-minute polling, upstream caching, request timing, and different accounting surfaces can produce material differences from ChatGPT’s interface.
+- Background refresh intervals, upstream caching, request timing, and different accounting surfaces can produce material differences from ChatGPT’s interface.
 - Gaugelet is an informational display, not a billing, entitlement, availability, or spending guarantee.
 
 ## Help, source, and project policy

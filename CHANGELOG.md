@@ -2,6 +2,13 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
+## Unreleased
+
+- Stopped the menu-bar appearance/redraw feedback loop and redundant assignments of unchanged status-button properties.
+- Replaced the 30-second refresh heartbeat with deadline scheduling, update capped countdowns only when their displayed value changes, and pause dashboard timelines while hidden.
+- Automatic background refresh now follows power state: five minutes on AC, ten minutes on battery or UPS, and fifteen minutes in Low Power Mode, which takes precedence. Manual, wake, open-after-one-minute, and expected-reset refreshes remain available. Routine background refresh allows up to five seconds of scheduling tolerance, and macOS may defer it further; alerts can lag at the longer intervals.
+- Added opt-in local energy event counters through `GAUGELET_ENERGY_DIAGNOSTICS=1`, printed at normal shutdown. No usage or account content is recorded or uploaded.
+
 ## [1.1.1] - 2026-09-17
 
 Build `4` — Developer ID signing and Apple notarization.
