@@ -44,7 +44,26 @@ Gaugelet displays what the local Codex App Server returns. Missing windows remai
 
 ## Cursor or Grok usage does not appear
 
-Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Open Cursor and sign in, then refresh. If Cursor has no saved session, Gaugelet can use a Grok sign-in in `~/.grok/auth.json`. A rejected token stays signed out until you sign in again in Cursor. Gaugelet does not show a second Grok percent on top of a Cursor reading.
+Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Open Cursor and sign in, then refresh. Grok credits also need a Grok CLI sign-in.
+
+Check the sign-in without printing secrets:
+
+1. In Terminal, run `grok login` if the Grok CLI is installed.
+2. Confirm the file exists: `test -f "${GROK_HOME:-$HOME/.grok}/auth.json" && echo "auth file present"`.
+3. Print only the key names:
+
+   ```bash
+   python3 -c 'import json, os
+   p = os.path.join(os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok"), "auth.json")
+   data = json.load(open(p))
+   print("top-level:", ", ".join(sorted(data)))
+   for name, value in sorted(data.items()):
+       if isinstance(value, dict):
+           print(name, "fields:", ", ".join(sorted(value)))'
+   ```
+4. Expect a top-level key starting with `https://auth.x.ai::` and, inside it, `key`, `expires_at`, `auth_mode`, and `user_id`. Do not paste the values. An `xai::api_key` entry is not enough. If `expires_at` is in the past, run `grok login` again. Gaugelet does not refresh tokens and does not read the keychain.
+
+A rejected sign-in stays on screen with the path and those key names. A Cursor reading and a Grok reading are separate rows. Neither replaces a good ChatGPT reading.
 
 ## Launch at Login
 

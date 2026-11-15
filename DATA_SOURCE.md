@@ -8,7 +8,7 @@ Gaugelet automatically asks Codex for a fresh snapshot every five minutes, and t
 
 ## Cursor and Grok plan usage
 
-Cursor plan usage is off until you enable it. Gaugelet then reads one saved access token and requests the current plan reading. It does not read chat history, composer data, or a tracking database, and it does not write or refresh the token.
+Cursor plan usage is off until you enable it. Gaugelet then reads the saved Cursor access token, and the Grok CLI sign-in when that file is present, and requests the current plan readings. It does not read chat history, composer data, or a tracking database, and it does not write or refresh either token.
 
 - The token is `cursorAuth/accessToken` in `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, opened read-only.
 - The gauge prefers `POST https://cursor.com/api/dashboard/get-current-period-usage`.
@@ -16,7 +16,11 @@ Cursor plan usage is off until you enable it. Gaugelet then reads one saved acce
 - A rejected token is shown as signed out. Gaugelet does not use `GET /api/usage-summary` as the gauge, because that summary can report a monthly window and 0% while the current-period reading has the weekly pool.
 - On The X Subscription, a cycle of about seven days is one included weekly pool shared by Grok and Cursor. Third-party model usage is prepaid Additional Usage, not spare included allowance. A missing dollar amount is left blank.
 - Older Cursor plans keep the included, Auto, and API percents only when those percents are distinct.
-- If Cursor has no saved session and `~/.grok/auth.json` has an access token, Gaugelet requests `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` and shows that percent as the same included row. When both sign-ins exist, the Cursor current-period reading is the only meter.
+- Grok credits are a separate reading from the Cursor plan. Gaugelet looks for a Grok sign-in in `$GROK_HOME/auth.json` when `GROK_HOME` is set, otherwise `~/.grok/auth.json`. It does not read the macOS keychain and it does not refresh the token.
+- The file written by `grok login` is a map of scope to credential. The bearer is `key` under `https://auth.x.ai::<client id>`. An expired `expires_at` is shown as signed out. A top-level `access_token` is still accepted. An `xai::api_key` entry is not used for this reading.
+- When that sign-in is usable, Gaugelet requests `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with `Authorization: Bearer` and `X-XAI-Token-Auth: xai-grok-cli`. If the entry has `user_id`, that value is sent as `x-userid` on the same request and is not stored.
+- The included row is `config.creditUsagePercent` (percent used). `config.productUsage` is shown as its own rows. Prepaid and on-demand amounts use the cent object `val`. An older payload can use `used.val` and `monthlyLimit.val`. A current period with no percent is zero usage for that period. A response with none of those fields stays unavailable and names the JSON keys that were present, not their values.
+- When both sign-ins exist, the Cursor rows and the Grok rows are both shown. They are not added together. A rejected Cursor token does not hide a working Grok sign-in.
 
 Manage usage opens [grok.com/dashboard](https://grok.com/dashboard) for a weekly pool and Cursor’s spending dashboard for an older plan. Gaugelet does not buy credit or change the plan.
 

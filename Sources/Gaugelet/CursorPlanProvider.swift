@@ -9,6 +9,7 @@ enum CursorPlanError: LocalizedError, Equatable, Sendable {
     case timedOut
     case responseTooLarge
     case sessionUnreadable
+    case grokResponse(String)
 
     var errorDescription: String? {
         switch self {
@@ -26,8 +27,16 @@ enum CursorPlanError: LocalizedError, Equatable, Sendable {
             "Cursor returned more data than Gaugelet can safely process."
         case .sessionUnreadable:
             "Cursor’s saved sign-in could not be read. Open Cursor and retry."
+        case .grokResponse(let message):
+            message
         }
     }
+}
+
+enum GrokCredential: Equatable, Sendable {
+    case missing
+    case token(String, userID: String?)
+    case unusable(message: String)
 }
 
 enum CursorPlanRead: Equatable, Sendable {
@@ -53,10 +62,18 @@ struct CursorCredentialLocator: Sendable {
 
     static func live() -> CursorCredentialLocator {
         let home = FileManager.default.homeDirectoryForCurrentUser
+        let override = ProcessInfo.processInfo.environment["GROK_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let grokRoot: URL
+        if let override, !override.isEmpty, override.count <= 1_024, !override.contains("\0") {
+            grokRoot = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            grokRoot = home.appendingPathComponent(".grok")
+        }
         return CursorCredentialLocator(
             cursorDatabaseURL: home
                 .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
-            grokAuthURL: home.appendingPathComponent(".grok/auth.json")
+            grokAuthURL: grokRoot.appendingPathComponent("auth.json")
         )
     }
 
@@ -68,20 +85,59 @@ struct CursorCredentialLocator: Sendable {
         return try token(from: cursorDatabaseURL, sql: fallback)
     }
 
-    func grokAccessToken() throws -> String? {
-        guard FileManager.default.fileExists(atPath: grokAuthURL.path) else { return nil }
-        let values = try grokAuthURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-        guard values.isRegularFile == true, (values.fileSize ?? 0) <= 262_144 else {
-            throw CursorPlanError.sessionUnreadable
+    func grokAccessToken(now: Date = Date()) throws -> String? {
+        switch try grokCredential(now: now) {
+        case .missing, .unusable:
+            return nil
+        case .token(let token, _):
+            return token
         }
-        let data = try Data(contentsOf: grokAuthURL)
-        guard data.count <= 262_144,
-              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { throw CursorPlanError.sessionUnreadable }
-        for key in ["access_token", "accessToken", "token"] {
-            if let token = CursorPlanParser.acceptedToken(json[key] as? String) { return token }
+    }
+
+    func grokCredential(now: Date = Date()) throws -> GrokCredential {
+        let pathLabel = Self.grokPathLabel(for: grokAuthURL)
+        guard FileManager.default.fileExists(atPath: grokAuthURL.path) else { return .missing }
+        let values: URLResourceValues
+        do {
+            values = try grokAuthURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        } catch {
+            return .unusable(message: CursorPlanParser.grokAuthMessage(
+                pathLabel,
+                problem: "the file could not be read. Gaugelet does not read the macOS keychain"
+            ))
         }
-        return nil
+        guard values.isRegularFile == true else {
+            return .unusable(message: CursorPlanParser.grokAuthMessage(
+                pathLabel,
+                problem: "the path is not a regular file. Gaugelet does not read the macOS keychain"
+            ))
+        }
+        guard (values.fileSize ?? 0) <= 262_144 else {
+            return .unusable(message: CursorPlanParser.grokAuthMessage(
+                pathLabel,
+                problem: "the file is larger than Gaugelet will read"
+            ))
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: grokAuthURL)
+        } catch {
+            return .unusable(message: CursorPlanParser.grokAuthMessage(
+                pathLabel,
+                problem: "the file could not be read. Gaugelet does not read the macOS keychain"
+            ))
+        }
+        return CursorPlanParser.grokCredential(from: data, now: now, pathLabel: pathLabel)
+    }
+
+    static func grokPathLabel(for url: URL) -> String {
+        let components = url.pathComponents
+        if components.count >= 2,
+           components[components.count - 1] == "auth.json",
+           components[components.count - 2] == ".grok" {
+            return "~/.grok/auth.json"
+        }
+        return "$GROK_HOME/auth.json"
     }
 
     private func token(from databaseURL: URL, sql: String) throws -> String? {
@@ -198,16 +254,109 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         let cursorToken = try await Task.detached {
             try locator.cursorAccessToken()
         }.value
-        if let cursorToken {
-            return try await fetchCursor(token: cursorToken, now: currentTime)
-        }
-        let grokToken = try await Task.detached {
-            try locator.grokAccessToken()
+        let grok = try await Task.detached {
+            try locator.grokCredential(now: currentTime)
         }.value
-        if let grokToken {
-            return try await fetchGrok(token: grokToken, now: currentTime)
+
+        let cursorSnapshot: UsageSnapshot?
+        let cursorFailure: Error?
+        if let cursorToken {
+            do {
+                cursorSnapshot = try await fetchCursor(token: cursorToken, now: currentTime)
+                cursorFailure = nil
+            } catch {
+                cursorSnapshot = nil
+                cursorFailure = error
+            }
+        } else {
+            cursorSnapshot = nil
+            cursorFailure = nil
+        }
+
+        if let cursorSnapshot, cursorSnapshot.isSignedIn {
+            return await attachingGrok(
+                to: cursorSnapshot,
+                credential: grok,
+                cursorToken: cursorToken,
+                now: currentTime
+            )
+        }
+
+        if case .token(let token, let userID) = grok {
+            do {
+                let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: currentTime)
+                if grokSnapshot.isSignedIn {
+                    let reading = cursorToken == nil
+                        ? grokSnapshot
+                        : CursorPlanParser.withNotice(
+                            grokSnapshot,
+                            notice: "Cursor rejected the saved sign-in. Showing the Grok sign-in only."
+                        )
+                    return identified(reading, tokens: [token])
+                }
+                if let cursorSnapshot {
+                    return CursorPlanParser.withNotice(cursorSnapshot, notice: grokSnapshot.sourceDetail)
+                }
+                return grokSnapshot
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
+                if let cursorSnapshot {
+                    return CursorPlanParser.withNotice(cursorSnapshot, notice: message)
+                }
+                throw error
+            }
+        }
+
+        if let cursorSnapshot {
+            if case .unusable(let message) = grok {
+                return CursorPlanParser.withNotice(cursorSnapshot, notice: message)
+            }
+            return cursorSnapshot
+        }
+
+        if case .unusable(let message) = grok {
+            if let cursorFailure {
+                throw CursorPlanError.grokResponse("\(cursorFailure.localizedDescription) \(message)")
+            }
+            return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .grokPlan, detail: message)
+        }
+
+        if let cursorFailure {
+            throw cursorFailure
         }
         return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .cursorPlan)
+    }
+
+    private func attachingGrok(
+        to cursorSnapshot: UsageSnapshot,
+        credential: GrokCredential,
+        cursorToken: String?,
+        now: Date
+    ) async -> UsageSnapshot {
+        switch credential {
+        case .missing:
+            return identified(cursorSnapshot, tokens: cursorToken.map { [$0] } ?? [])
+        case .unusable(let message):
+            return identified(CursorPlanParser.withNotice(cursorSnapshot, notice: message), tokens: cursorToken.map { [$0] } ?? [])
+        case .token(let token, let userID):
+            do {
+                let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: now)
+                guard grokSnapshot.isSignedIn else {
+                    return identified(
+                        CursorPlanParser.withNotice(cursorSnapshot, notice: grokSnapshot.sourceDetail),
+                        tokens: cursorToken.map { [$0] } ?? []
+                    )
+                }
+                let tokens = [cursorToken, token].compactMap { $0 }
+                return identified(CursorPlanParser.combine(cursor: cursorSnapshot, grok: grokSnapshot), tokens: tokens)
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
+                return identified(
+                    CursorPlanParser.withNotice(cursorSnapshot, notice: message),
+                    tokens: cursorToken.map { [$0] } ?? []
+                )
+            }
+        }
     }
 
     private func fetchCursor(token: String, now: Date) async throws -> UsageSnapshot {
@@ -225,9 +374,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         }
         if let primary {
             switch CursorPlanParser.interpret(statusCode: primary.statusCode, body: primary.body, now: now, source: .cursorPlan) {
-            case .snapshot(let snapshot):
-                return identified(snapshot, token: token)
-            case .signedOut(let snapshot):
+            case .snapshot(let snapshot), .signedOut(let snapshot):
                 return snapshot
             case .retryFallback, .failed:
                 break
@@ -243,9 +390,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             ]
         )
         switch CursorPlanParser.interpret(statusCode: fallback.statusCode, body: fallback.body, now: now, source: .cursorPlan) {
-        case .snapshot(let snapshot):
-            return identified(snapshot, token: token)
-        case .signedOut(let snapshot):
+        case .snapshot(let snapshot), .signedOut(let snapshot):
             return snapshot
         case .retryFallback:
             throw CursorPlanError.invalidResponse
@@ -263,26 +408,28 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         )
     }
 
-    private func fetchGrok(token: String, now: Date) async throws -> UsageSnapshot {
+    private func fetchGrok(token: String, userID: String?, now: Date) async throws -> UsageSnapshot {
+        var headers = ["X-XAI-Token-Auth": "xai-grok-cli"]
+        if let userID {
+            headers["x-userid"] = userID
+        }
         let response = try await transport.get(
             url: CursorPlanParser.grokBillingURL,
             bearerToken: token,
-            extraHeaders: ["X-XAI-Token-Auth": "xai-grok-cli"]
+            extraHeaders: headers
         )
         switch CursorPlanParser.interpretGrok(statusCode: response.statusCode, body: response.body, now: now) {
-        case .snapshot(let snapshot):
-            return identified(snapshot, token: token)
-        case .signedOut(let snapshot):
+        case .snapshot(let snapshot), .signedOut(let snapshot):
             return snapshot
         case .retryFallback:
-            throw CursorPlanError.invalidResponse
+            throw CursorPlanError.grokResponse(CursorPlanParser.grokHTTPMessage(statusCode: response.statusCode))
         case .failed(let error):
             throw error
         }
     }
 
-    private func identified(_ snapshot: UsageSnapshot, token: String) -> UsageSnapshot {
-        guard snapshot.isSignedIn, let accountID = CursorPlanParser.sessionIdentity(for: token) else {
+    private func identified(_ snapshot: UsageSnapshot, tokens: [String]) -> UsageSnapshot {
+        guard snapshot.isSignedIn, let accountID = CursorPlanParser.sessionIdentity(for: tokens) else {
             return snapshot
         }
         var identified = snapshot
@@ -362,18 +509,24 @@ enum CursorPlanParser {
             return .signedOut(signedOutSnapshot(
                 now: now,
                 source: .grokPlan,
-                detail: "Grok rejected the saved sign-in. Open Grok and sign in again."
+                detail: "Grok rejected the saved sign-in in ~/.grok/auth.json. Run `grok login`, then refresh. Gaugelet does not refresh tokens."
             ))
         }
-        guard (200..<300).contains(statusCode) else { return .failed(.invalidResponse) }
+        guard (200..<300).contains(statusCode) else {
+            return .failed(.grokResponse(grokHTTPMessage(statusCode: statusCode)))
+        }
         guard body.count <= maximumResponseBytes else { return .failed(.responseTooLarge) }
         do {
             return .snapshot(try parseGrokCredits(body, now: now))
         } catch let error as CursorPlanError {
             return .failed(error)
         } catch {
-            return .failed(.invalidResponse)
+            return .failed(.grokResponse(grokHTTPMessage(statusCode: statusCode)))
         }
+    }
+
+    static func grokHTTPMessage(statusCode: Int) -> String {
+        "Grok usage request failed (HTTP \(statusCode)). Gaugelet called GET https://cli-chat-proxy.grok.com/v1/billing?format=credits."
     }
 
     static func parseCurrentPeriod(_ data: Data, now: Date = Date(), source: UsageSource = .cursorPlan) throws -> UsageSnapshot {
@@ -474,42 +627,245 @@ enum CursorPlanParser {
 
     static func parseGrokCredits(_ data: Data, now: Date = Date()) throws -> UsageSnapshot {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CursorPlanError.invalidResponse
+            throw CursorPlanError.grokResponse(
+                "Grok returned a usage response that was not a JSON object. Gaugelet called GET https://cli-chat-proxy.grok.com/v1/billing?format=credits."
+            )
         }
         let config = json["config"] as? [String: Any] ?? json
         let period = config["currentPeriod"] as? [String: Any] ?? json["currentPeriod"] as? [String: Any]
-        guard let used = finiteNumber(config["creditUsagePercent"]) ?? finiteNumber(json["creditUsagePercent"]),
-              let remaining = remainingPercent(used: used)
-        else { throw CursorPlanError.noUsage }
-
         let start = parseDate(period?["start"]) ?? parseDate(config["billingPeriodStart"])
         let end = parseDate(period?["end"]) ?? parseDate(config["billingPeriodEnd"])
         let type = (period?["type"] as? String) ?? (config["currentPeriodType"] as? String) ?? ""
         let weekly = type.uppercased().contains("WEEK") || isWeekly(start: start, end: end)
-        var snapshot = UsageSnapshot(
-            planName: weekly ? "X Subscription" : "Grok plan",
-            limits: [
+        let hasPeriod = period != nil || start != nil || end != nil
+
+        let reportedPercent = config["creditUsagePercent"] ?? json["creditUsagePercent"]
+        let usedPercent = finiteNumber(reportedPercent)
+        let monthlyUsed = centValue(config["used"])
+        let monthlyLimit = centValue(config["monthlyLimit"])
+        let onDemandUsed = centValue(config["onDemandUsed"] ?? json["onDemandUsed"])
+        let onDemandCap = centValue(config["onDemandCap"] ?? json["onDemandCap"])
+
+        var limits: [UsageLimit] = []
+        if reportedPercent != nil {
+            guard let usedPercent, usedPercent.isFinite, usedPercent >= 0,
+                  let remaining = remainingPercent(used: min(usedPercent, 100))
+            else { throw CursorPlanError.grokResponse(grokShapeMessage(json)) }
+            limits.append(grokIncludedLimit(remaining: remaining, reset: end, weekly: weekly))
+        } else if let monthlyUsed, let monthlyLimit, monthlyLimit > 0,
+                  let remaining = remainingPercent(usedCents: monthlyUsed, limitCents: monthlyLimit) {
+            limits.append(grokIncludedLimit(remaining: remaining, reset: end, weekly: weekly))
+        } else if hasPeriod {
+            // The credits API omits the percent at the start of a period. That is zero usage, not an estimate.
+            limits.append(grokIncludedLimit(remaining: 100, reset: end, weekly: weekly))
+        }
+
+        let products = (config["productUsage"] as? [Any] ?? json["productUsage"] as? [Any] ?? []).prefix(8)
+        var productRows: [UsageLimit] = []
+        for item in products {
+            guard let row = item as? [String: Any] else { continue }
+            let rawName = (row["product"] as? String) ?? (row["productName"] as? String) ?? ""
+            guard let name = displayLabel(rawName),
+                  let percent = finiteNumber(row["usagePercent"] ?? row["usage_percent"]),
+                  percent.isFinite, percent >= 0,
+                  let remaining = remainingPercent(used: min(percent, 100))
+            else { continue }
+            productRows.append(
                 UsageLimit(
-                    id: "cursor:included",
-                    name: "Included usage",
+                    id: grokProductID(name, existing: productRows.map(\.id)),
+                    name: name,
                     remainingPercent: remaining,
                     resetDate: end,
-                    bucketID: "a-included",
-                    contextNote: weekly ? "Weekly pool · Grok and Cursor" : "Included usage"
+                    bucketID: "h-grok-product",
+                    contextNote: "Grok sign-in · part of the weekly credits"
                 )
-            ],
+            )
+        }
+        if productRows.count == 1,
+           let headline = usedPercent,
+           let only = finiteNumber((products.first as? [String: Any])?["usagePercent"]),
+           abs(only - headline) <= 0.05 {
+            productRows = []
+        }
+        limits.append(contentsOf: productRows)
+
+        if let onDemandCap, onDemandCap > 0, let onDemandUsed, onDemandUsed >= 0,
+           let remaining = remainingPercent(usedCents: onDemandUsed, limitCents: onDemandCap) {
+            limits.append(
+                UsageLimit(
+                    id: "cursor:grok-on-demand",
+                    name: "Grok on-demand",
+                    remainingPercent: remaining,
+                    resetDate: end,
+                    bucketID: "i-grok-ondemand",
+                    contextNote: "On-demand cap"
+                )
+            )
+        }
+
+        guard !limits.isEmpty else {
+            throw CursorPlanError.grokResponse(grokShapeMessage(json))
+        }
+
+        let tier = displayLabel(
+            (json["subscriptionTier"] as? String)
+                ?? (json["subscription_tier"] as? String)
+                ?? (config["subscriptionTier"] as? String)
+                ?? ""
+        )
+        var snapshot = UsageSnapshot(
+            planName: tier ?? (weekly ? "Grok" : "Grok plan"),
+            limits: limits,
             lastUpdated: now,
             isSignedIn: true,
-            note: "Shared weekly pool for Grok and Cursor.",
+            note: weekly
+                ? "Grok sign-in weekly credits. This is separate from the Cursor plan reading."
+                : "Grok sign-in usage for this billing period.",
             source: .grokPlan,
-            sourceDetail: "Grok and Cursor plan usage. Read-only via the local Grok sign-in."
+            sourceDetail: "Grok plan usage. Read-only via the local Grok sign-in in ~/.grok/auth.json."
         )
         snapshot.plan = .cursor
         snapshot.billingShape = weekly ? .weeklyPool : .legacyCycle
-        if let prepaid = prepaidCredit(from: json) ?? prepaidCredit(from: config) {
+        if let prepaid = prepaidCredit(from: config, id: "grok:prepaid") ?? prepaidCredit(from: json, id: "grok:prepaid") {
             snapshot.credits = [prepaid]
         }
         return snapshot
+    }
+
+    static func grokCredential(from data: Data, now: Date, pathLabel: String) -> GrokCredential {
+        guard data.count <= 262_144 else {
+            return .unusable(message: grokAuthMessage(pathLabel, problem: "the file is larger than Gaugelet will read"))
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .unusable(message: grokAuthMessage(
+                pathLabel,
+                problem: "the file is not a JSON object. Gaugelet does not read the macOS keychain"
+            ))
+        }
+        return grokCredential(in: json, now: now, pathLabel: pathLabel)
+    }
+
+    static func grokCredential(in json: [String: Any], now: Date, pathLabel: String) -> GrokCredential {
+        let candidates = nestedGrokCandidates(json)
+        var sawAPIKey = candidates.contains { $0.rank == 3 }
+        for candidate in candidates where candidate.rank < 3 {
+            if isWebLogin(candidate.entry) { continue }
+            if tokenIsAPIKey(candidate.entry) {
+                sawAPIKey = true
+                continue
+            }
+            if isExpired(candidate.entry, now: now) {
+                if candidate.rank == 0 {
+                    return .unusable(message: grokAuthMessage(
+                        pathLabel,
+                        problem: "expires_at is in the past. Gaugelet does not refresh tokens",
+                        json: json
+                    ))
+                }
+                continue
+            }
+            if let token = entryToken(candidate.entry) {
+                return .token(token, userID: safeUserID(candidate.entry["user_id"] ?? candidate.entry["userId"]))
+            }
+        }
+        if sawAPIKey, flatToken(json) == nil {
+            return .unusable(message: grokAuthMessage(
+                pathLabel,
+                problem: "only an xAI API key was found (xai::api_key, or a key that starts with xai-). Plan usage needs the sign-in from `grok login`",
+                json: json
+            ))
+        }
+        if let token = flatToken(json) {
+            return .token(token, userID: safeUserID(json["user_id"] ?? json["userId"]))
+        }
+        return .unusable(message: grokAuthMessage(
+            pathLabel,
+            problem: "no access token was found. Expected `key` under an https://auth.x.ai entry, or a top-level access_token. Gaugelet does not read the macOS keychain",
+            json: json
+        ))
+    }
+
+    static func grokAuthMessage(_ pathLabel: String, problem: String, json: [String: Any]? = nil) -> String {
+        var message = "Grok sign-in in \(pathLabel): \(problem)."
+        if let json {
+            message += " Keys present: \(grokKeySummary(json))."
+        }
+        message += " Run `grok login`, then refresh. Gaugelet does not read the keychain."
+        if message.count > 420 {
+            return String(message.prefix(417)) + "..."
+        }
+        return message
+    }
+
+    static func grokKeySummary(_ json: [String: Any]) -> String {
+        var parts: [String] = []
+        let keys = json.keys.sorted()
+        for key in keys {
+            guard parts.count < 8, let label = publicJSONKey(key) else { continue }
+            if let object = json[key] as? [String: Any] {
+                let fields = object.keys.sorted().compactMap { publicFieldName($0) }.prefix(12)
+                parts.append(fields.isEmpty ? label : "\(label) (\(fields.joined(separator: ", ")))")
+            } else {
+                parts.append(label)
+            }
+        }
+        let hidden = keys.count - parts.count
+        if parts.isEmpty {
+            return hidden > 0 ? "\(hidden) unrecognized key\(hidden == 1 ? "" : "s")" : "none"
+        }
+        if hidden > 0 {
+            parts.append("\(hidden) unrecognized")
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    static func withNotice(_ snapshot: UsageSnapshot, notice: String) -> UsageSnapshot {
+        var copy = UsageSnapshot(
+            planName: snapshot.planName,
+            limits: snapshot.limits,
+            lastUpdated: snapshot.lastUpdated,
+            isSignedIn: snapshot.isSignedIn,
+            note: joinedNotice(snapshot.note, notice),
+            source: snapshot.source,
+            sourceDetail: joinedNotice(snapshot.sourceDetail, notice)
+        )
+        copy.accountID = snapshot.accountID
+        copy.resetCredits = snapshot.resetCredits
+        copy.credits = snapshot.credits
+        copy.omittedLimitCount = snapshot.omittedLimitCount
+        copy.plan = snapshot.plan
+        copy.billingShape = snapshot.billingShape
+        return copy
+    }
+
+    static func combine(cursor: UsageSnapshot, grok: UsageSnapshot) -> UsageSnapshot {
+        let notice = "Grok sign-in credits are listed separately and are not added to the Cursor percent."
+        var snapshot = UsageSnapshot(
+            planName: cursor.planName,
+            limits: cursor.limits + grok.limits,
+            lastUpdated: cursor.lastUpdated,
+            isSignedIn: true,
+            note: joinedNotice(cursor.note, notice),
+            source: cursor.source,
+            sourceDetail: "Cursor plan from the local Cursor sign-in, plus Grok credits from ~/.grok/auth.json. Read-only."
+        )
+        snapshot.plan = .cursor
+        snapshot.billingShape = cursor.billingShape
+        var credits = cursor.credits
+        for credit in grok.credits where !credits.contains(where: { $0.id == credit.id }) {
+            credits.append(credit)
+        }
+        snapshot.credits = credits
+        return snapshot
+    }
+
+    static func sessionIdentity(for tokens: [String]) -> String? {
+        let identities = tokens.compactMap { sessionIdentity(for: $0) }
+        guard let first = identities.first else { return nil }
+        guard identities.count > 1 else { return first }
+        let digest = SHA256.hash(data: Data(identities.joined(separator: "\n").utf8))
+        let hex = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return "mix:\(hex)"
     }
 
     static func signedOutSnapshot(
@@ -570,20 +926,154 @@ enum CursorPlanParser {
         )
     }
 
-    private static func prepaidCredit(from payload: [String: Any]) -> CreditBalance? {
-        let keys = ["prepaidBalanceCents", "prepaidCreditCents", "additionalUsageCreditCents", "creditBalanceCents"]
-        guard let cents = keys.compactMap({ finiteNumber(payload[$0]) }).first,
-              let display = dollarString(cents: cents)
-        else { return nil }
+    private static func prepaidCredit(from payload: [String: Any], id: String = "cursor:additional") -> CreditBalance? {
+        let numberKeys = ["prepaidBalanceCents", "prepaidCreditCents", "additionalUsageCreditCents", "creditBalanceCents"]
+        let centKeys = ["prepaidBalance", "prepaid_balance", "prepaidBalanceCents"]
+        let cents = centKeys.compactMap { centValue(payload[$0]) }.first
+            ?? numberKeys.compactMap { finiteNumber(payload[$0]) }.first
+        guard let cents, let display = dollarString(cents: cents) else { return nil }
         return CreditBalance(
-            id: "cursor:additional",
-            name: "Additional usage",
+            id: id,
+            name: id == "cursor:additional" ? "Additional usage" : "Grok prepaid",
             balance: display,
             hasCredits: cents != 0,
             unlimited: false,
             detail: "Prepaid credit · does not reset weekly",
             usesPlainLabel: true
         )
+    }
+
+    private static func grokIncludedLimit(remaining: Int, reset: Date?, weekly: Bool) -> UsageLimit {
+        UsageLimit(
+            id: "cursor:grok-included",
+            name: "Grok included",
+            remainingPercent: remaining,
+            resetDate: reset,
+            bucketID: "g-grok",
+            contextNote: weekly ? "Grok sign-in · weekly credits" : "Grok sign-in"
+        )
+    }
+
+    private static func grokProductID(_ name: String, existing: [String]) -> String {
+        let slug = String(name.lowercased().map { character in
+            character.isLetter || character.isNumber ? character : "-"
+        }).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let clipped = String(slug.prefix(24))
+        let base = "cursor:grok-product:\(clipped.isEmpty ? "other" : clipped)"
+        guard existing.contains(base) else { return base }
+        return "\(base)-\(existing.count)"
+    }
+
+    private static func grokShapeMessage(_ json: [String: Any]) -> String {
+        "Grok returned a usage response without a readable percent. Gaugelet called GET https://cli-chat-proxy.grok.com/v1/billing?format=credits and expected config.creditUsagePercent or config.currentPeriod. Keys present: \(grokKeySummary(json))."
+    }
+
+    private struct GrokAuthCandidate {
+        let rank: Int
+        let scope: String
+        let entry: [String: Any]
+    }
+
+    private static func nestedGrokCandidates(_ json: [String: Any]) -> [GrokAuthCandidate] {
+        json.compactMap { element -> GrokAuthCandidate? in
+            let scope = element.key
+            let value = element.value
+            guard let entry = value as? [String: Any] else { return nil }
+            let rank: Int
+            if scope.hasPrefix("https://auth.x.ai::") || scope == "https://auth.x.ai" {
+                rank = 0
+            } else if scope == "xai::api_key" {
+                rank = 3
+            } else if scope == "https://accounts.x.ai/sign-in" {
+                rank = 2
+            } else if scope.hasPrefix("https://") {
+                rank = 1
+            } else {
+                return nil
+            }
+            return GrokAuthCandidate(rank: rank, scope: scope, entry: entry)
+        }
+        .sorted { lhs, rhs in
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+            return lhs.scope < rhs.scope
+        }
+    }
+
+    private static func isWebLogin(_ entry: [String: Any]) -> Bool {
+        let mode = (entry["auth_mode"] as? String)?.lowercased()
+        return mode == "web_login" || mode == "grok"
+    }
+
+    private static func tokenIsAPIKey(_ entry: [String: Any]) -> Bool {
+        guard let token = entryToken(entry) else { return false }
+        return token.hasPrefix("xai-")
+    }
+
+    private static func isExpired(_ entry: [String: Any], now: Date) -> Bool {
+        guard entry["expires_at"] != nil || entry["expiresAt"] != nil else { return false }
+        guard let date = parseDate(entry["expires_at"]) ?? parseDate(entry["expiresAt"]) else { return false }
+        return date <= now
+    }
+
+    private static func entryToken(_ entry: [String: Any]) -> String? {
+        for key in ["key", "access_token", "accessToken", "token"] {
+            if let token = acceptedToken(entry[key] as? String) { return token }
+        }
+        return nil
+    }
+
+    private static func flatToken(_ json: [String: Any]) -> String? {
+        for key in ["access_token", "accessToken", "token", "key"] {
+            guard let token = acceptedToken(json[key] as? String), !token.hasPrefix("xai-") else { continue }
+            return token
+        }
+        return nil
+    }
+
+    private static func safeUserID(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let userID = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...128).contains(userID.count),
+              userID.range(of: "^[A-Za-z0-9_.:@|-]+$", options: .regularExpression) != nil
+        else { return nil }
+        return userID
+    }
+
+    private static func publicJSONKey(_ key: String) -> String? {
+        if key == "xai::api_key" { return key }
+        if key.hasPrefix("https://"),
+           key.count <= 160,
+           !key.contains(".."),
+           !key.lowercased().contains("token="),
+           key.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) }) {
+            return key
+        }
+        if !key.contains(":"), publicFieldName(key) != nil { return key }
+        return nil
+    }
+
+    private static func publicFieldName(_ key: String) -> String? {
+        guard key.count <= 40,
+              key.range(of: "^[A-Za-z][A-Za-z0-9_]*$", options: .regularExpression) != nil
+        else { return nil }
+        return key
+    }
+
+    private static func centValue(_ value: Any?) -> Double? {
+        if let object = value as? [String: Any] {
+            if object.isEmpty { return 0 }
+            return finiteNumber(object["val"])
+        }
+        return finiteNumber(value)
+    }
+
+    private static func joinedNotice(_ base: String, _ notice: String) -> String {
+        let trimmed = notice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return base }
+        if base.contains(trimmed) { return base }
+        let combined = base.isEmpty ? trimmed : "\(base) \(trimmed)"
+        guard combined.count > 500 else { return combined }
+        return String(combined.prefix(497)) + "..."
     }
 
     private static func legacyPlanName(from payload: [String: Any]) -> String {

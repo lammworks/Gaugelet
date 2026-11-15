@@ -34,7 +34,7 @@ Gaugelet:
 - Starts the locally installed `codex app-server` and communicates over a private standard-input/output pipe.
 - Sends a read-only `account/rateLimits/read` request and relies on Codex for authentication.
 - Does not intentionally read browser cookies, Codex authentication files, prompts, responses, or project source.
-- Reads a Cursor or Grok access token only after Cursor plan usage is enabled, uses it for one usage request, and does not store or log it.
+- Reads a Cursor access token, and the Grok CLI bearer when that sign-in file is present, only after Cursor plan usage is enabled. Each is used for one usage request and is not stored or logged.
 - Treats App Server and plan-usage output as untrusted and bounds response size, execution time, and parsed window count.
 - Shows stale, unavailable, or signed-out state instead of treating malformed or missing data as a valid live reading.
 - Operates no analytics, telemetry, usage-history, account, or LammWorks backend.

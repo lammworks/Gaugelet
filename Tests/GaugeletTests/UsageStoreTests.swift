@@ -270,6 +270,54 @@ final class UsageStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testGrokSignInDetailStaysVisibleWithoutReplacingChatGPT() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        let live = makeSnapshot(id: "five-hour", remainingPercent: 73)
+        let detail = "Gaugelet could not use the Grok sign-in in ~/.grok/auth.json: expires_at is in the past. Keys present: https://auth.x.ai::example (expires_at, key)."
+        let signedOut = CursorPlanParser.signedOutSnapshot(
+            now: Date(timeIntervalSince1970: 1_800_000_000),
+            source: .grokPlan,
+            detail: detail
+        )
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await cursor.waitForRequestCount(1)
+        await chatgpt.resolve(0, with: .success(live))
+        await cursor.resolve(0, with: .success(signedOut))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(store.state, .live(live))
+        guard case .live(let cursorSnapshot) = store.cursorState else {
+            return XCTFail("Expected the Grok sign-in state to publish, got \(store.cursorState)")
+        }
+        XCTAssertFalse(cursorSnapshot.isSignedIn)
+        XCTAssertEqual(cursorSnapshot.source, .grokPlan)
+        XCTAssertTrue(cursorSnapshot.sourceDetail.contains("~/.grok/auth.json"))
+        XCTAssertTrue(cursorSnapshot.sourceDetail.contains("expires_at"))
+        XCTAssertFalse(cursorSnapshot.sourceDetail.contains("access token value"))
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(2)
+        await cursor.waitForRequestCount(2)
+        await chatgpt.resolve(1, with: .success(live))
+        await cursor.resolve(1, with: .failure("Grok usage request failed (HTTP 404). Gaugelet called GET https://cli-chat-proxy.grok.com/v1/billing?format=credits."))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(store.state, .live(live))
+        guard case .unavailable(let message) = store.cursorState else {
+            return XCTFail("Expected a visible Grok failure, got \(store.cursorState)")
+        }
+        XCTAssertTrue(message.contains("HTTP 404"))
+        XCTAssertTrue(message.contains("cli-chat-proxy.grok.com/v1/billing"))
+        XCTAssertFalse(message.contains("Bearer"))
+    }
+
+    @MainActor
     func testPinnedCursorCounterUsesTheCursorReading() async {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "cursorUsageEnabled")

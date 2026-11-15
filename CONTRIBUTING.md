@@ -42,7 +42,7 @@ Pull requests require passing CI and maintainer review. A submission does not gu
 ## Engineering principles
 
 - Preserve the read-only Codex boundary. Do not access browser storage, Codex credentials, prompts, responses, or project files.
-- The opt-in Cursor plan reading may use only `cursorAuth/accessToken` or the Grok CLI access token, and only for the documented usage requests. Do not log, store, or refresh those tokens, and do not read any other Cursor or Grok data.
+- The opt-in Cursor plan reading may use only `cursorAuth/accessToken`, or the Grok CLI bearer (`key` in `~/.grok/auth.json` / `$GROK_HOME/auth.json`), and only for the documented usage requests. Do not log, store, or refresh those tokens, and do not read any other Cursor or Grok data.
 - Treat App Server and Cursor or Grok usage output as untrusted. Keep timeouts, size bounds, parsing limits, and explicit unavailable states.
 - Never invent usage values. Missing upstream windows remain unavailable.
 - Keep the five-minute refresh and manual refresh semantics clear; OpenAI's enforced limits are authoritative.

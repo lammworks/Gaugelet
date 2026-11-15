@@ -9,7 +9,7 @@ Gaugelet is a local-first menu-bar app. It has no Gaugelet account, advertising,
 Gaugelet communicates with these external boundaries:
 
 1. The separately installed Codex CLI may contact OpenAI when Gaugelet asks its local App Server for allowance, reset/credit details, or optional token activity.
-2. If you enable Cursor plan usage, Gaugelet reads one local Cursor or Grok access token and sends a read-only usage request to Cursor or xAI.
+2. If you enable Cursor plan usage, Gaugelet reads the local Cursor access token and, when present, the local Grok sign-in, and sends a read-only usage request to Cursor or xAI.
 3. Sparkle may contact GitHub to check for and download Gaugelet updates.
 
 Gaugelet does not sell personal information.
@@ -56,7 +56,9 @@ The request is one of:
 
 The response is used for the included percent, a distinct Auto or API percent on older plans, the cycle end, an on-demand cap when one is returned, and a prepaid balance when an amount is returned. Missing amounts stay blank.
 
-If Cursor has no saved session and `~/.grok/auth.json` contains an access token, Gaugelet sends that token only to `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`. When a Cursor session exists, Gaugelet does not add the Grok percent on top of it. Both describe the same shared pool on The X Subscription.
+Grok credits are read separately from the Cursor plan. Gaugelet reads one bearer from `$GROK_HOME/auth.json` when `GROK_HOME` is set, otherwise from `~/.grok/auth.json`. The current Grok CLI stores that bearer as `key` under an `https://auth.x.ai` entry, with `expires_at` and a `refresh_token` that Gaugelet does not use. A top-level `access_token` is still accepted. Gaugelet does not read the macOS keychain, does not refresh the token, and does not send an `xai::api_key` value.
+
+When the sign-in is usable, Gaugelet sends that bearer only to `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, with the header `X-XAI-Token-Auth: xai-grok-cli`. If the same entry includes `user_id`, that identifier is sent as `x-userid` on this request and is not stored. The Cursor rows and the Grok rows are shown together when both sign-ins exist. They are not added into one percent. The token and `user_id` are held in memory for that request and are not written to preferences, logs, or a Gaugelet file.
 
 **Manage usage** opens `https://grok.com/dashboard` for a weekly pool and Cursor’s spending dashboard for an older plan. Gaugelet does not buy credit, change plans, or redeem anything.
 

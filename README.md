@@ -90,12 +90,12 @@ Gaugelet ── private stdio pipe ──> codex app-server ── existing Code
 
 Gaugelet ── read-only access token, only when enabled ──> Cursor or xAI usage endpoint
     │
-    └── one included pool for a weekly X Subscription; distinct meters for an older Cursor plan
+    └── Cursor plan rows, plus separate Grok sign-in credits when ~/.grok/auth.json has a session
 ```
 
 - Gaugelet starts the locally installed `codex app-server` and makes a read-only `account/rateLimits/read` request.
 - Authentication stays with Codex for ChatGPT. Gaugelet does not read browser cookies, Codex authentication files, API keys, prompts, responses, or project files.
-- Cursor plan usage is optional. When you enable it, Gaugelet reads one local access token, requests the current plan reading, and does not save the token. On The X Subscription that reading is the weekly pool shared by Grok and Cursor.
+- Cursor plan usage is optional. When you enable it, Gaugelet reads the local Cursor access token and, when `grok login` has written one, the Grok CLI bearer in `~/.grok/auth.json`. It does not save either token. The X Subscription weekly pool and the Grok sign-in credits are separate rows.
 - Live readings stay in memory. Preferences use standard macOS storage.
 - Demo, stale, unavailable, blocked, and signed-out states are visibly distinguished. Missing data is never replaced with a plausible-looking estimate.
 

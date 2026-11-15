@@ -294,7 +294,7 @@ private struct UsageDashboard: View {
 
                 case .unavailable(let errorMessage):
                     connectionStatusContent(
-                        title: store.selectedPlan == .cursor ? "Cursor usage unavailable" : "Live usage unavailable",
+                        title: unavailableTitle(message: errorMessage),
                         message: errorMessage,
                         symbol: "exclamationmark.triangle",
                         showsProgress: false,
@@ -326,6 +326,13 @@ private struct UsageDashboard: View {
                     Text(snapshot.planName)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                    if snapshot.plan == .cursor, !snapshot.note.isEmpty {
+                        Text(snapshot.note)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(4)
+                    }
                 }
                 Spacer()
                 if store.presentedIsRefreshing {
@@ -505,7 +512,7 @@ private struct UsageDashboard: View {
                 .lineSpacing(2)
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
-                .lineLimit(6)
+                .lineLimit(8)
 
             if offersRetry {
                 HStack(spacing: 8) {
@@ -565,12 +572,14 @@ private struct UsageDashboard: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.top, 6)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(8)
 
             if snapshot.source != .demo {
-                Button(snapshot.plan == .cursor ? "Open Cursor" : "Codex setup guide") {
-                    store.open(snapshot.plan == .cursor ? .cursorDashboard : .codexSetup)
+                Button(signedOutButtonTitle(for: snapshot)) {
+                    store.open(signedOutLink(for: snapshot))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(accent)
@@ -601,7 +610,7 @@ private struct UsageDashboard: View {
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.top, 14)
 
-            Text("Gaugelet can read the Grok and Cursor plan from the Cursor sign-in already on this Mac. It reads one access token, requests usage only, and does not save the token.")
+            Text("Gaugelet can read the Cursor plan from the Cursor sign-in on this Mac, and Grok credits from the local Grok sign-in. It uses those tokens for the usage request and does not save them.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -620,8 +629,14 @@ private struct UsageDashboard: View {
         }
     }
 
+    private func unavailableTitle(message: String) -> String {
+        guard store.selectedPlan == .cursor else { return "Live usage unavailable" }
+        return message.localizedCaseInsensitiveContains("grok") ? "Grok usage unavailable" : "Cursor usage unavailable"
+    }
+
     private func signedOutTitle(for snapshot: UsageSnapshot) -> String {
         if snapshot.source == .demo { return "Signed-out demo" }
+        if snapshot.source == .grokPlan { return "Grok is not signed in" }
         return snapshot.plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
     }
 
@@ -630,9 +645,23 @@ private struct UsageDashboard: View {
             return "This preview contains demo data only. No account information is being read."
         }
         if snapshot.plan == .cursor {
-            return "Open Cursor and sign in, then refresh Gaugelet. If Cursor has no session, Gaugelet can use a local Grok sign-in instead."
+            let detail = snapshot.sourceDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+            if snapshot.source == .grokPlan || detail.contains("auth.json") || detail.contains("grok login") {
+                return detail
+            }
+            return "Open Cursor and sign in, then refresh Gaugelet. If Cursor has no session, Gaugelet can use a local Grok sign-in in ~/.grok/auth.json."
         }
         return "Sign in to Codex, then refresh Gaugelet to read live usage."
+    }
+
+    private func signedOutButtonTitle(for snapshot: UsageSnapshot) -> String {
+        if snapshot.source == .grokPlan { return "Open Grok usage" }
+        return snapshot.plan == .cursor ? "Open Cursor" : "Codex setup guide"
+    }
+
+    private func signedOutLink(for snapshot: UsageSnapshot) -> GaugeletLink {
+        if snapshot.source == .grokPlan { return .grokDashboard }
+        return snapshot.plan == .cursor ? .cursorDashboard : .codexSetup
     }
 
     @ViewBuilder
@@ -847,7 +876,7 @@ private struct SettingsView: View {
 
                 settingsGroup("CURSOR PLAN") {
                     Toggle("Read Cursor usage", isOn: $store.cursorUsageEnabled)
-                    Text("When this is on, Gaugelet reads one local Cursor access token and requests plan usage. If Cursor is not signed in, it uses the local Grok sign-in. The token stays in memory for that request and is not saved.")
+                    Text("When this is on, Gaugelet reads the local Cursor access token and the Grok sign-in in ~/.grok/auth.json when that file has one. Each token stays in memory for its usage request and is not saved.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

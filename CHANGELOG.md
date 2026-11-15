@@ -5,6 +5,7 @@ All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Ver
 ## [Unreleased]
 
 - Optional Grok and Cursor plan usage in the menu-bar popover. ChatGPT stays on the Codex reading. The Cursor tab stays off until you enable it.
+- Grok credits are read from the Grok CLI sign-in (`key` under `https://auth.x.ai` in `~/.grok/auth.json` or `$GROK_HOME/auth.json`) and shown as their own rows beside the Cursor plan. An expired or unreadable sign-in names the file and the JSON keys present, without values.
 - The X Subscription is shown as one weekly pool shared by Grok and Cursor. Older Cursor plans keep the distinct included meters that account returns.
 - The menu bar still shows one pinned percent. A Cursor row can be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
 - Privacy, security, and data-source notes name the read-only token key and the Cursor and xAI usage requests.
