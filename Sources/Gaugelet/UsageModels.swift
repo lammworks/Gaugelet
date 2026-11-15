@@ -377,8 +377,7 @@ enum UsageNotificationPolicy {
               previous.source.isLiveAccount, previous.source == current.source,
               previous.plan == current.plan,
               previous.isSignedIn, current.isSignedIn,
-              let previousAccount = previous.accountID, !previousAccount.isEmpty,
-              previousAccount == current.accountID
+              sameAccount(previous, current)
         else { return [] }
         let threshold = min(max(warningThreshold, 5), 50)
         return current.orderedLimits.compactMap { limit in
@@ -410,6 +409,21 @@ enum UsageNotificationPolicy {
 
     static func alert(previous: UsageSnapshot?, current: UsageSnapshot?, warningThreshold: Int) -> GaugeletUsageAlert? {
         alerts(previous: previous, current: current, warningThreshold: warningThreshold).first
+    }
+
+    private static func sameAccount(_ previous: UsageSnapshot, _ current: UsageSnapshot) -> Bool {
+        let previousAccount = nonempty(previous.accountID)
+        let currentAccount = nonempty(current.accountID)
+        if previous.plan == .cursor || previous.source == .cursorPlan || previous.source == .grokPlan {
+            guard let previousAccount, let currentAccount else { return false }
+            return previousAccount == currentAccount
+        }
+        return previousAccount == currentAccount
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 

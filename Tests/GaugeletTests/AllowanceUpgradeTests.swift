@@ -42,6 +42,17 @@ final class AllowanceUpgradeTests: XCTestCase {
         XCTAssertEqual(alerts.map(\.kind), [.restored])
     }
 
+    func testChatGPTAlertsStillFireWhenCodexOmitsAccountID() {
+        let before = snapshot([("codex-primary", 40)], account: nil)
+        let after = snapshot([("codex-primary", 10)], account: nil)
+        XCTAssertEqual(
+            UsageNotificationPolicy.alerts(previous: before, current: after, warningThreshold: 20).map(\.kind),
+            [.runningLow]
+        )
+        let identified = snapshot([("codex-primary", 0)], account: "account-a")
+        XCTAssertTrue(UsageNotificationPolicy.alerts(previous: before, current: identified, warningThreshold: 20).isEmpty)
+    }
+
     func testAccountSwitchDoesNotGenerateFalseAlerts() {
         let before = snapshot([("codex-primary", 80)])
         let after = snapshot([("codex-primary", 0)], account: "account-b")
