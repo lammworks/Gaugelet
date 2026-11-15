@@ -668,7 +668,7 @@ private struct UsageDashboard: View {
 
     private func footer(snapshot: UsageSnapshot) -> some View {
         HStack(spacing: 4) {
-            Text(store.state.badgeTitle == "STALE" ? "Last live check" : "Checked")
+            Text(store.presentedState.badgeTitle == "STALE" ? "Last live check" : "Checked")
             Text(snapshot.lastUpdated, style: .relative)
             Text("ago")
             Spacer()
@@ -1089,7 +1089,7 @@ private struct SettingsView: View {
 
 extension Date {
     func gaugeletCountdownValue(from now: Date = Date()) -> String {
-        let minutes = max(Int(timeIntervalSince(now) / 60), 0)
+        guard let minutes = gaugeletWholeMinutes(from: now) else { return "—" }
         if minutes < 60 { return "\(max(minutes, 1))m" }
 
         let hours = minutes / 60

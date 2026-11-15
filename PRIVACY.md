@@ -47,7 +47,7 @@ Cursor plan usage is off until you turn it on in the Cursor tab or in Settings. 
 
 When it is on, Gaugelet opens Cursor’s local state database read-only and reads only the key `cursorAuth/accessToken` from `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`. It does not read chat transcripts, composer sessions, prompts, project files, or the local tracking database.
 
-The token is held in memory for that one request and is not written to preferences, logs, or a Gaugelet file. Gaugelet does not refresh the token and does not write to Cursor’s database. If the database cannot be read, or Cursor rejects the token, Gaugelet shows an unavailable or signed-out state and asks you to open Cursor.
+The token is held in memory for that one request and is not written to preferences, logs, or a Gaugelet file. A signed-in reading also keeps an in-memory session identifier: the account subject when the sign-in is a JSON Web Token, otherwise a short hash of the token. Gaugelet uses that identifier only so an allowance alert is not raised by switching Cursor or Grok accounts. It is not the access token, and it is not written to preferences, logs, or a file. A reading with no session identifier is not compared with another reading. Gaugelet does not refresh the token and does not write to Cursor’s database. If the database cannot be read, or Cursor rejects the token, Gaugelet shows an unavailable or signed-out state and asks you to open Cursor.
 
 The request is one of:
 

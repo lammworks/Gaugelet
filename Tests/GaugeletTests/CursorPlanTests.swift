@@ -196,6 +196,9 @@ final class CursorPlanTests: XCTestCase {
         let requested = await transport.requested
 
         XCTAssertEqual(snapshot.limits.first?.remainingPercent, 72)
+        XCTAssertEqual(snapshot.accountID, CursorPlanParser.sessionIdentity(for: "cursor-session-token"))
+        XCTAssertNotEqual(snapshot.accountID, "cursor-session-token")
+        XCTAssertFalse(snapshot.accountID?.contains("cursor-session-token") == true)
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL])
     }
 
@@ -215,6 +218,7 @@ final class CursorPlanTests: XCTestCase {
         let requested = await transport.requested
 
         XCTAssertFalse(snapshot.isSignedIn)
+        XCTAssertNil(snapshot.accountID)
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL])
     }
 
@@ -246,6 +250,65 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL, CursorPlanParser.fallbackPeriodURL])
     }
 
+    func testOversizedResetTimestampStaysUnavailable() throws {
+        let body = Data(#"""
+        {"billingCycleStart":"2026-10-18T00:00:00Z","billingCycleEnd":"1e308","planUsage":{"totalPercentUsed":28}}
+        """#.utf8)
+        let snapshot = try CursorPlanParser.parseCurrentPeriod(body)
+        XCTAssertEqual(snapshot.limits.first?.remainingPercent, 72)
+        XCTAssertNil(snapshot.limits.first?.resetDate)
+        XCTAssertEqual(snapshot.limits.first?.resetDescription(), "Reset time unavailable")
+        XCTAssertNil(CursorPlanParser.parseDate("1e308"))
+        XCTAssertNil(CursorPlanParser.parseDate(1e308))
+        XCTAssertEqual(
+            CursorPlanParser.parseDate(1_800_000_000),
+            Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        XCTAssertEqual(
+            CursorPlanParser.parseDate(1_800_000_000_000),
+            Date(timeIntervalSince1970: 1_800_000_000)
+        )
+    }
+
+    func testSessionIdentityFollowsTheAccountAndNotTheRawToken() {
+        let first = jwt(subject: "user-123")
+        let refreshed = jwt(subject: "user-123", signature: "other-signature")
+        let other = jwt(subject: "user-456")
+
+        XCTAssertEqual(CursorPlanParser.sessionIdentity(for: first), "sub:user-123")
+        XCTAssertEqual(CursorPlanParser.sessionIdentity(for: first), CursorPlanParser.sessionIdentity(for: refreshed))
+        XCTAssertNotEqual(CursorPlanParser.sessionIdentity(for: first), CursorPlanParser.sessionIdentity(for: other))
+        XCTAssertNotEqual(CursorPlanParser.sessionIdentity(for: first), first)
+
+        let opaque = CursorPlanParser.sessionIdentity(for: "cursor-session-token")
+        XCTAssertEqual(opaque?.hasPrefix("sha256:"), true)
+        XCTAssertNotEqual(opaque, "cursor-session-token")
+        XCTAssertFalse(opaque?.contains("cursor-session-token") == true)
+        XCTAssertNotEqual(opaque, CursorPlanParser.sessionIdentity(for: "grok-session-token"))
+        XCTAssertNil(CursorPlanParser.sessionIdentity(for: "bad token"))
+    }
+
+    func testGrokFallbackCarriesTheGrokSessionIdentity() async throws {
+        let transport = SequenceTransport(responses: [
+            CursorPlanHTTPResponse(statusCode: 200, body: Data(#"""
+            {"config":{"creditUsagePercent":40,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-10-25T06:32:13.504Z"}}}
+            """#.utf8))
+        ])
+        let provider = CursorPlanProvider(
+            locator: CursorCredentialLocator(
+                cursorDatabaseURL: URL(fileURLWithPath: NSTemporaryDirectory())
+                    .appendingPathComponent("\(UUID().uuidString)-missing.vscdb"),
+                grokAuthURL: try makeGrokAuth(token: "grok-session-token")
+            ),
+            transport: transport
+        )
+
+        let snapshot = try await provider.fetchSnapshot()
+        XCTAssertEqual(snapshot.source, .grokPlan)
+        XCTAssertEqual(snapshot.accountID, CursorPlanParser.sessionIdentity(for: "grok-session-token"))
+        XCTAssertFalse(snapshot.accountID?.contains("grok-session-token") == true)
+    }
+
     func testReadsOnlyTheCursorAccessToken() throws {
         let database = try makeCursorDatabase(token: "cursor-session-token")
         let locator = CursorCredentialLocator(
@@ -267,6 +330,20 @@ final class CursorPlanTests: XCTestCase {
         )
         XCTAssertNil(try locator.cursorAccessToken())
         XCTAssertEqual(try locator.grokAccessToken(), "grok-session-token")
+    }
+
+    private func jwt(subject: String, signature: String = "sig") -> String {
+        func segment(_ json: String) -> String {
+            Data(json.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        return [
+            segment(#"{"alg":"none"}"#),
+            segment(#"{"sub":"\#(subject)"}"#),
+            signature
+        ].joined(separator: ".")
     }
 
     private func periodJSON(

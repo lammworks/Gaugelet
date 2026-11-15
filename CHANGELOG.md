@@ -8,6 +8,7 @@ All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Ver
 - The X Subscription is shown as one weekly pool shared by Grok and Cursor. Older Cursor plans keep the distinct included meters that account returns.
 - The menu bar still shows one pinned percent. A Cursor row can be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
 - Privacy, security, and data-source notes name the read-only token key and the Cursor and xAI usage requests.
+- Allowance alerts compare Cursor and Grok readings only when both carry the same in-memory session identifier. Reset times outside a supported range stay unavailable.
 
 ## [1.1.1] - 2026-09-17
 

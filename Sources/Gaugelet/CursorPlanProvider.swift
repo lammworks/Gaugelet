@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum CursorPlanError: LocalizedError, Equatable, Sendable {
@@ -86,13 +87,25 @@ struct CursorCredentialLocator: Sendable {
     private func token(from databaseURL: URL, sql: String) throws -> String? {
         let process = Process()
         let output = Pipe()
+        let input = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = [Self.sqliteURI(for: databaseURL), ".timeout 300", sql]
+        // The query is the process input, not a second argument. Some sqlite3
+        // builds run only one command-line statement, which would skip the SELECT.
+        process.arguments = [Self.sqliteURI(for: databaseURL)]
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        process.standardInput = input
         do {
             try process.run()
         } catch {
+            throw CursorPlanError.sessionUnreadable
+        }
+        let script = Data(".timeout 300\n\(sql)\n".utf8)
+        do {
+            try input.fileHandleForWriting.write(contentsOf: script)
+            try input.fileHandleForWriting.close()
+        } catch {
+            process.terminate()
             throw CursorPlanError.sessionUnreadable
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()
@@ -212,7 +225,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         }
         if let primary {
             switch CursorPlanParser.interpret(statusCode: primary.statusCode, body: primary.body, now: now, source: .cursorPlan) {
-            case .snapshot(let snapshot), .signedOut(let snapshot):
+            case .snapshot(let snapshot):
+                return identified(snapshot, token: token)
+            case .signedOut(let snapshot):
                 return snapshot
             case .retryFallback, .failed:
                 break
@@ -228,7 +243,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             ]
         )
         switch CursorPlanParser.interpret(statusCode: fallback.statusCode, body: fallback.body, now: now, source: .cursorPlan) {
-        case .snapshot(let snapshot), .signedOut(let snapshot):
+        case .snapshot(let snapshot):
+            return identified(snapshot, token: token)
+        case .signedOut(let snapshot):
             return snapshot
         case .retryFallback:
             throw CursorPlanError.invalidResponse
@@ -253,13 +270,24 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             extraHeaders: ["X-XAI-Token-Auth": "xai-grok-cli"]
         )
         switch CursorPlanParser.interpretGrok(statusCode: response.statusCode, body: response.body, now: now) {
-        case .snapshot(let snapshot), .signedOut(let snapshot):
+        case .snapshot(let snapshot):
+            return identified(snapshot, token: token)
+        case .signedOut(let snapshot):
             return snapshot
         case .retryFallback:
             throw CursorPlanError.invalidResponse
         case .failed(let error):
             throw error
         }
+    }
+
+    private func identified(_ snapshot: UsageSnapshot, token: String) -> UsageSnapshot {
+        guard snapshot.isSignedIn, let accountID = CursorPlanParser.sessionIdentity(for: token) else {
+            return snapshot
+        }
+        var identified = snapshot
+        identified.accountID = accountID
+        return identified
     }
 }
 
@@ -511,6 +539,16 @@ enum CursorPlanParser {
         return token
     }
 
+    static func sessionIdentity(for token: String) -> String? {
+        guard acceptedToken(token) != nil else { return nil }
+        if let subject = jwtSubject(token) {
+            return "sub:\(subject)"
+        }
+        let digest = SHA256.hash(data: Data(token.utf8))
+        let hex = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return "sha256:\(hex)"
+    }
+
     private static func spendCapLimit(from raw: Any?, reset: Date?) -> UsageLimit? {
         guard let spend = raw as? [String: Any] else { return nil }
         let individualLimit = finiteNumber(spend["individualLimit"])
@@ -607,19 +645,81 @@ enum CursorPlanParser {
             if let number = Double(string) { return date(from: number) }
             let fractional = ISO8601DateFormatter()
             fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = fractional.date(from: string) { return date }
+            if let date = fractional.date(from: string) { return bounded(date) }
             let plain = ISO8601DateFormatter()
             plain.formatOptions = [.withInternetDateTime]
-            return plain.date(from: string)
+            if let date = plain.date(from: string) { return bounded(date) }
         }
         return nil
     }
 
+    private static let minimumResetTimestamp: TimeInterval = 946_684_800
+    private static let maximumResetTimestamp: TimeInterval = 4_102_444_800
+
     private static func date(from raw: Double) -> Date? {
         guard raw.isFinite, raw > 0 else { return nil }
-        if raw > 1_000_000_000_000 { return Date(timeIntervalSince1970: raw / 1000) }
-        if raw > 1_000_000_000 { return Date(timeIntervalSince1970: raw) }
+        let seconds: Double
+        if raw > 1_000_000_000_000 {
+            seconds = raw / 1000
+        } else if raw > 1_000_000_000 {
+            seconds = raw
+        } else {
+            return nil
+        }
+        guard seconds.isFinite,
+              seconds >= minimumResetTimestamp,
+              seconds <= maximumResetTimestamp
+        else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    private static func bounded(_ date: Date) -> Date? {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite,
+              seconds >= minimumResetTimestamp,
+              seconds <= maximumResetTimestamp
+        else { return nil }
+        return date
+    }
+
+    private static func jwtSubject(_ token: String) -> String? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        guard let data = base64URLDecoded(String(parts[1])),
+              data.count <= 8_192,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        if let subject = json["sub"] as? String {
+            return acceptedSubject(subject)
+        }
+        if let number = json["sub"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            let value = number.doubleValue
+            guard value.isFinite, value > 0, value.rounded(.towardZero) == value, let exact = Int64(exactly: value) else {
+                return nil
+            }
+            return acceptedSubject(String(exact))
+        }
         return nil
+    }
+
+    private static func acceptedSubject(_ value: String) -> String? {
+        let subject = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !subject.isEmpty,
+              subject.count <= 256,
+              subject.unicodeScalars.allSatisfy({ (0x21...0x7e).contains($0.value) })
+        else { return nil }
+        return subject
+    }
+
+    private static func base64URLDecoded(_ value: String) -> Data? {
+        var payload = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = payload.count % 4
+        if remainder != 0 {
+            payload += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: payload)
     }
 
     private static func finiteNumber(_ value: Any?) -> Double? {

@@ -462,6 +462,7 @@ private func makeSnapshot(id: String, remainingPercent: Int) -> UsageSnapshot {
         isSignedIn: true,
         note: "",
         source: .codexAppServer,
-        sourceDetail: "Live test data"
+        sourceDetail: "Live test data",
+        accountID: "account-a"
     )
 }

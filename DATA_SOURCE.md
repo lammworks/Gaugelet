@@ -24,7 +24,7 @@ Manage usage opens [grok.com/dashboard](https://grok.com/dashboard) for a weekly
 
 - Gaugelet starts `codex app-server` over a private stdio pipe for each refresh.
 - Codex owns authentication. Gaugelet never reads browser cookies, browser storage, Codex authentication files, or Codex access tokens or API keys.
-- The optional Cursor reading uses only the single key above, holds it in memory for one request, and does not store it in preferences or logs.
+- The optional Cursor reading uses only the single key above, holds that token in memory for one request, and does not store it in preferences or logs. A signed-in reading may also keep an in-memory session identifier, never the token, so alerts are not compared across account changes. Reset timestamps outside 2000–2100 are left unavailable.
 - The app requests only rate-limit and plan-usage data. It does not start threads, consume reset credits, sign users out, or change Codex or Cursor configuration.
 - Percentages and reset timestamps stay in memory in this prototype.
 - If Codex, Cursor, or a usage response is unavailable, the UI shows an explicit unavailable state. After a successful live reading, a failed refresh may retain that exact reading only as visibly stale data. Demo values appear only when the user deliberately selects Demo data in Settings. A Cursor failure does not replace a good ChatGPT reading.

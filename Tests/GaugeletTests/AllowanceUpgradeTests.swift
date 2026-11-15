@@ -5,12 +5,18 @@ import XCTest
 final class AllowanceUpgradeTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func snapshot(_ values: [(String, Int)], account: String? = "account-a") -> UsageSnapshot {
+    private func snapshot(
+        _ values: [(String, Int)],
+        account: String? = "account-a",
+        source: UsageSource = .codexAppServer,
+        plan: UsagePlan = .chatgpt
+    ) -> UsageSnapshot {
         var snapshot = UsageSnapshot(planName: "ChatGPT Pro", limits: values.map {
             UsageLimit(id: $0.0, name: $0.0, remainingPercent: $0.1, resetDate: now.addingTimeInterval(60),
                        bucketID: $0.0.hasPrefix("codex-") ? "codex" : "spark", windowDurationMins: 300)
-        }, lastUpdated: now, isSignedIn: true, note: "", source: .codexAppServer, sourceDetail: "Test")
+        }, lastUpdated: now, isSignedIn: true, note: "", source: source, sourceDetail: "Test")
         snapshot.accountID = account
+        snapshot.plan = plan
         return snapshot
     }
 
@@ -40,6 +46,31 @@ final class AllowanceUpgradeTests: XCTestCase {
         let before = snapshot([("codex-primary", 80)])
         let after = snapshot([("codex-primary", 0)], account: "account-b")
         XCTAssertTrue(UsageNotificationPolicy.alerts(previous: before, current: after, warningThreshold: 20).isEmpty)
+    }
+
+    func testCursorReadingsWithoutASharedIdentityDoNotAlert() {
+        let before = snapshot(
+            [("cursor:included", 80)], account: "acct-a", source: .cursorPlan, plan: .cursor
+        )
+        let switched = snapshot(
+            [("cursor:included", 0)], account: "acct-b", source: .cursorPlan, plan: .cursor
+        )
+        let unidentified = snapshot(
+            [("cursor:included", 0)], account: nil, source: .cursorPlan, plan: .cursor
+        )
+        let sameAccount = snapshot(
+            [("cursor:included", 0)], account: "acct-a", source: .cursorPlan, plan: .cursor
+        )
+
+        XCTAssertTrue(UsageNotificationPolicy.alerts(previous: before, current: switched, warningThreshold: 20).isEmpty)
+        XCTAssertTrue(UsageNotificationPolicy.alerts(previous: before, current: unidentified, warningThreshold: 20).isEmpty)
+        XCTAssertTrue(UsageNotificationPolicy.alerts(
+            previous: unidentified, current: unidentified, warningThreshold: 20
+        ).isEmpty)
+        XCTAssertEqual(
+            UsageNotificationPolicy.alerts(previous: before, current: sameAccount, warningThreshold: 20).map(\.kind),
+            [.limitReached]
+        )
     }
 
     func testOrderAndPinnedCounterDoNotFollowMostConstrained() {

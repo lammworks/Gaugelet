@@ -376,7 +376,9 @@ enum UsageNotificationPolicy {
         guard let previous, let current,
               previous.source.isLiveAccount, previous.source == current.source,
               previous.plan == current.plan,
-              previous.isSignedIn, current.isSignedIn, previous.accountID == current.accountID
+              previous.isSignedIn, current.isSignedIn,
+              let previousAccount = previous.accountID, !previousAccount.isEmpty,
+              previousAccount == current.accountID
         else { return [] }
         let threshold = min(max(warningThreshold, 5), 50)
         return current.orderedLimits.compactMap { limit in
@@ -702,9 +704,18 @@ enum DemoUsageProvider {
 }
 
 extension Date {
+    func gaugeletWholeMinutes(from now: Date) -> Int? {
+        let interval = timeIntervalSince(now)
+        guard interval.isFinite else { return nil }
+        let minutes = max(interval, 0) / 60
+        guard minutes.isFinite else { return nil }
+        return Int(exactly: minutes.rounded(.down))
+    }
+
     func gaugeletRelativeReset(from now: Date = Date()) -> String {
-        let remaining = max(timeIntervalSince(now), 0)
-        let minutes = Int(remaining / 60)
+        guard let minutes = gaugeletWholeMinutes(from: now) else {
+            return "Reset time unavailable"
+        }
 
         if minutes < 1 { return "Resets shortly" }
         if minutes < 60 { return "Resets in \(minutes)m" }
