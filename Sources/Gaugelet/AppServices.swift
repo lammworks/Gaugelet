@@ -57,6 +57,9 @@ enum GaugeletMenuBarPresentation {
 enum GaugeletLink: String, CaseIterable, Sendable {
     case chatGPT = "https://chatgpt.com"
     case usage = "https://chatgpt.com/codex/settings/usage"
+    case grokDashboard = "https://grok.com/dashboard"
+    case cursorDashboard = "https://cursor.com/dashboard"
+    case cursorSpending = "https://cursor.com/dashboard?tab=spending"
     case releases = "https://github.com/lammworks/Gaugelet/releases"
     case buyMeACoffee = "https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"
     case privacy = "https://github.com/lammworks/Gaugelet/blob/main/PRIVACY.md"

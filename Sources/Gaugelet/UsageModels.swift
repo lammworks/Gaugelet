@@ -25,15 +25,48 @@ enum UsageTone: Equatable, Sendable {
     case unavailable
 }
 
+enum UsagePlan: String, Equatable, Sendable, CaseIterable, Identifiable {
+    case chatgpt
+    case cursor
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chatgpt: "ChatGPT"
+        case .cursor: "Cursor"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .chatgpt: "ChatGPT plan usage"
+        case .cursor: "Grok and Cursor plan usage"
+        }
+    }
+}
+
+enum UsageBillingShape: Equatable, Sendable {
+    case chatGPT
+    case weeklyPool
+    case legacyCycle
+}
+
 enum UsageSource: Equatable, Sendable {
     case codexAppServer
+    case cursorPlan
+    case grokPlan
     case demo
 
     var badgeTitle: String {
         switch self {
-        case .codexAppServer: "LIVE"
+        case .codexAppServer, .cursorPlan, .grokPlan: "LIVE"
         case .demo: "DEMO"
         }
+    }
+
+    var isLiveAccount: Bool {
+        self != .demo
     }
 }
 
@@ -142,7 +175,8 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         resetDate: Date?,
         blockedReason: String? = nil,
         bucketID: String? = nil,
-        windowDurationMins: Int? = nil
+        windowDurationMins: Int? = nil,
+        contextNote: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -151,7 +185,10 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         self.blockedReason = blockedReason
         self.bucketID = bucketID
         self.windowDurationMins = windowDurationMins
+        self.contextNote = contextNote
     }
+
+    let contextNote: String?
 
     var isShared: Bool { ["codex", "overall"].contains(bucketID?.lowercased() ?? "") }
 
@@ -203,6 +240,9 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         if lowercased.hasSuffix(" usage limit") {
             return readableWindow
         }
+        if lowercased.hasSuffix(" usage") {
+            return readableWindow + " limit"
+        }
         if lowercased.hasSuffix(" limit") {
             return String(readableWindow.dropLast(" limit".count)) + " usage limit"
         }
@@ -233,6 +273,8 @@ struct UsageSnapshot: Equatable, Sendable {
     var resetCredits: EarnedResetCredits? = nil
     var credits: [CreditBalance] = []
     var omittedLimitCount: Int = 0
+    var plan: UsagePlan = .chatgpt
+    var billingShape: UsageBillingShape = .chatGPT
 
     // Ordering never depends on consumption or reset timestamps.
     var orderedLimits: [UsageLimit] {
@@ -295,7 +337,8 @@ enum UsageState: Equatable, Sendable {
     var badgeTitle: String {
         switch self {
         case .loading: "CONNECTING"
-        case .live(let snapshot): snapshot.source.badgeTitle
+        case .live(let snapshot):
+            snapshot.isSignedIn ? snapshot.source.badgeTitle : "SIGNED OUT"
         case .stale: "STALE"
         case .unavailable: "OFFLINE"
         case .demo: "DEMO"
@@ -303,9 +346,18 @@ enum UsageState: Equatable, Sendable {
     }
 
     var sourceDetail: String {
+        detail(for: .chatgpt)
+    }
+
+    func detail(for plan: UsagePlan) -> String {
         switch self {
         case .loading:
-            "Connecting to Codex. No usage value is available yet."
+            switch plan {
+            case .chatgpt:
+                "Connecting to Codex. No usage value is available yet."
+            case .cursor:
+                "Connecting to Cursor. No usage value is available yet."
+            }
         case .live(let snapshot), .demo(let snapshot):
             snapshot.sourceDetail
         case .stale(let snapshot, let errorMessage, _):
@@ -322,7 +374,8 @@ enum UsageNotificationPolicy {
         notifyOnRestore: Bool = false
     ) -> [GaugeletUsageAlert] {
         guard let previous, let current,
-              previous.source == .codexAppServer, current.source == .codexAppServer,
+              previous.source.isLiveAccount, previous.source == current.source,
+              previous.plan == current.plan,
               previous.isSignedIn, current.isSignedIn, previous.accountID == current.accountID
         else { return [] }
         let threshold = min(max(warningThreshold, 5), 50)
@@ -344,7 +397,12 @@ enum UsageNotificationPolicy {
                 title = "Allowance restored"
                 body = "\(limit.compactName) is available again · \(limit.clampedRemainingPercent)% left."
             } else { return nil }
-            return GaugeletUsageAlert(kind: kind, identifier: "gaugelet.usage.\(limit.id).\(kind.rawValue)", title: title, body: body)
+            return GaugeletUsageAlert(
+                kind: kind,
+                identifier: "gaugelet.usage.\(current.plan.rawValue).\(limit.id).\(kind.rawValue)",
+                title: title,
+                body: body
+            )
         }
     }
 
@@ -364,6 +422,12 @@ struct CreditBalance: Identifiable, Equatable, Sendable {
     let balance: String?
     let hasCredits: Bool
     let unlimited: Bool
+    var detail: String? = nil
+    var usesPlainLabel: Bool = false
+
+    var label: String {
+        usesPlainLabel ? name : "\(name) credits"
+    }
 
     var displayValue: String {
         if unlimited { return "Unlimited" }
@@ -398,6 +462,116 @@ enum DemoUsageProvider {
         value.resetCredits = EarnedResetCredits(availableCount: 2, earliestKnownExpiry: now.addingTimeInterval(7 * 86_400))
         value.credits = [CreditBalance(id: "demo", name: "Demo", balance: "40", hasCredits: true, unlimited: false)]
         return value
+    }
+
+    static func cursorSnapshot(for scenario: DemoScenario, now: Date = Date()) -> UsageSnapshot {
+        switch scenario {
+        case .comfortable:
+            cursorSnapshot(
+                remaining: 72,
+                reset: now.addingTimeInterval(4 * 24 * 60 * 60 + 6 * 60 * 60),
+                signedIn: true,
+                note: "You have room in the shared weekly pool.",
+                additional: "$18.40",
+                now: now
+            )
+        case .low:
+            cursorSnapshot(
+                remaining: 16,
+                reset: now.addingTimeInterval(2 * 24 * 60 * 60 + 4 * 60 * 60),
+                signedIn: true,
+                note: "The shared weekly pool is running low.",
+                additional: "$4.00",
+                now: now
+            )
+        case .capped:
+            cursorSnapshot(
+                remaining: 0,
+                reset: now.addingTimeInterval(18 * 60 * 60),
+                signedIn: true,
+                note: "The shared weekly pool is used up.",
+                additional: "$0.50",
+                now: now
+            )
+        case .signedOut:
+            var snapshot = cursorSnapshot(
+                remaining: 0,
+                reset: nil,
+                signedIn: false,
+                note: "Open Cursor and sign in.",
+                additional: nil,
+                now: now
+            )
+            snapshot.limits = []
+            snapshot.credits = []
+            return snapshot
+        }
+    }
+
+    private static func cursorSnapshot(
+        remaining: Int,
+        reset: Date?,
+        signedIn: Bool,
+        note: String,
+        additional: String?,
+        now: Date
+    ) -> UsageSnapshot {
+        var snapshot = UsageSnapshot(
+            planName: signedIn ? "X Subscription" : "Not connected",
+            limits: [
+                UsageLimit(
+                    id: "cursor:included",
+                    name: "Included usage",
+                    remainingPercent: remaining,
+                    resetDate: reset,
+                    bucketID: "a-included",
+                    contextNote: "Weekly pool · Grok and Cursor"
+                ),
+                UsageLimit(
+                    id: "cursor:models",
+                    name: "Cursor models",
+                    remainingPercent: remaining,
+                    resetDate: reset,
+                    bucketID: "b-models",
+                    contextNote: "Grok and Composer · same weekly pool"
+                )
+            ],
+            lastUpdated: now,
+            isSignedIn: signedIn,
+            note: note,
+            source: .demo,
+            sourceDetail: "Demo data only. No account information is being read."
+        )
+        snapshot.plan = .cursor
+        snapshot.billingShape = .weeklyPool
+        if signedIn {
+            var credits = [
+                CreditBalance(
+                    id: "cursor:other-models",
+                    name: "Other models",
+                    balance: "Prepaid",
+                    hasCredits: true,
+                    unlimited: false,
+                    detail: "Third-party models",
+                    usesPlainLabel: true
+                )
+            ]
+            if let additional {
+                credits.append(
+                    CreditBalance(
+                        id: "cursor:additional",
+                        name: "Additional usage",
+                        balance: additional,
+                        hasCredits: true,
+                        unlimited: false,
+                        detail: "Prepaid credit · does not reset weekly",
+                        usesPlainLabel: true
+                    )
+                )
+            }
+            snapshot.credits = credits
+        }
+        return snapshot
     }
 
     static func activity(now: Date = Date()) -> UsageActivity {

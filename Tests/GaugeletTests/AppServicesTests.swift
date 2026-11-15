@@ -59,6 +59,12 @@ final class GaugeletReleaseConfigurationTests: XCTestCase {
             GaugeletLink.source.url.absoluteString,
             "https://github.com/lammworks/Gaugelet"
         )
+        XCTAssertEqual(GaugeletLink.grokDashboard.url.absoluteString, "https://grok.com/dashboard")
+        XCTAssertEqual(GaugeletLink.cursorDashboard.url.absoluteString, "https://cursor.com/dashboard")
+        XCTAssertEqual(
+            GaugeletLink.cursorSpending.url.absoluteString,
+            "https://cursor.com/dashboard?tab=spending"
+        )
     }
 
     private func loadPackagingInfoPlist() throws -> [String: Any] {

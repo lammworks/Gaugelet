@@ -2,6 +2,13 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
+## [Unreleased]
+
+- Optional Grok and Cursor plan usage in the menu-bar popover. ChatGPT stays on the Codex reading. The Cursor tab stays off until you enable it.
+- The X Subscription is shown as one weekly pool shared by Grok and Cursor. Older Cursor plans keep the distinct included meters that account returns.
+- The menu bar still shows one pinned percent. A Cursor row can be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
+- Privacy, security, and data-source notes name the read-only token key and the Cursor and xAI usage requests.
+
 ## [1.1.1] - 2026-09-17
 
 Build `4` — Developer ID signing and Apple notarization.

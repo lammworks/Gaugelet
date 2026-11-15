@@ -17,8 +17,8 @@ Gaugelet does not promise a response SLA or bug bounty. Maintainers will priorit
 
 ## High-priority categories
 
-- Exposure or logging of Codex or OpenAI credentials.
-- Reading data beyond the documented rate-limit request.
+- Exposure or logging of Codex, OpenAI, Cursor, or xAI credentials.
+- Reading data beyond the documented rate-limit and plan-usage requests.
 - Arbitrary code execution, command injection, or unsafe process invocation.
 - Unsafe handling of untrusted Codex App Server output.
 - Bypass of response-size, timeout, or defensive-parsing controls.
@@ -33,13 +33,14 @@ Gaugelet:
 
 - Starts the locally installed `codex app-server` and communicates over a private standard-input/output pipe.
 - Sends a read-only `account/rateLimits/read` request and relies on Codex for authentication.
-- Does not intentionally read browser cookies, Codex authentication files, tokens, API keys, prompts, responses, or project source.
-- Treats App Server output as untrusted and bounds response size, execution time, and parsed window count.
+- Does not intentionally read browser cookies, Codex authentication files, prompts, responses, or project source.
+- Reads a Cursor or Grok access token only after Cursor plan usage is enabled, uses it for one usage request, and does not store or log it.
+- Treats App Server and plan-usage output as untrusted and bounds response size, execution time, and parsed window count.
 - Shows stale, unavailable, or signed-out state instead of treating malformed or missing data as a valid live reading.
 - Operates no analytics, telemetry, usage-history, account, or LammWorks backend.
 - Uses Sparkle to retrieve a signed update feed and user-approved full-DMG updates from GitHub Releases.
 
-The trust boundary includes the user's Mac, installed Codex CLI, OpenAI services, GitHub and its network providers, Apple’s Developer ID and notarization services, the public source repository, build workflows, the maintainer’s Developer ID and Sparkle Ed25519 keys, and the shipped Sparkle framework.
+The trust boundary includes the user's Mac, installed Codex CLI, OpenAI services, the optional Cursor and xAI usage endpoints, GitHub and its network providers, Apple’s Developer ID and notarization services, the public source repository, build workflows, the maintainer’s Developer ID and Sparkle Ed25519 keys, and the shipped Sparkle framework.
 
 ## Distribution model
 

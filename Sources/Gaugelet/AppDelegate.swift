@@ -127,7 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
         let isDark = isStatusBarDark(button)
-        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state, pinnedID: store.pinnedLimitID)
+        let state = store.menuBarUsageState
+        let iconState = GaugeletMenuBarPresentation.iconState(for: state, pinnedID: store.pinnedLimitID)
         button.image = GaugeletAppIcon.menuBarImage(
             for: store.iconStyle,
             mode: iconState.mode,
@@ -135,23 +136,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             isDark: isDark
         )
 
-        let state = store.state
+        let cursorPinned = store.pinnedLimitID.hasPrefix("cursor:")
 
         switch state {
         case .loading:
             button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — connecting to Codex"
-            button.setAccessibilityLabel("Gaugelet, connecting to Codex")
+            button.toolTip = cursorPinned ? "Gaugelet — connecting to Cursor" : "Gaugelet — connecting to Codex"
+            button.setAccessibilityLabel(cursorPinned ? "Gaugelet, connecting to Cursor" : "Gaugelet, connecting to Codex")
 
         case .unavailable:
             button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — live usage unavailable"
-            button.setAccessibilityLabel("Gaugelet, live usage unavailable")
+            button.toolTip = cursorPinned ? "Gaugelet — Cursor usage unavailable" : "Gaugelet — live usage unavailable"
+            button.setAccessibilityLabel(cursorPinned ? "Gaugelet, Cursor usage unavailable" : "Gaugelet, live usage unavailable")
 
         case .live(let snapshot):
             let value = statusValue(for: snapshot)
             button.title = store.showPercentageInMenuBar ? "  \(value)" : ""
-            button.toolTip = "Gaugelet — \(snapshot.menuBarLimit(pinnedID: store.pinnedLimitID)?.compactName ?? "Pinned limit unavailable")"
+            button.toolTip = statusToolTip(for: snapshot)
             button.setAccessibilityLabel(accessibilityLabel(for: snapshot))
 
         case .stale(let snapshot, _, _):
@@ -163,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .demo(let snapshot):
             let value = statusValue(for: snapshot)
             button.title = store.showPercentageInMenuBar ? "  D \(value)" : "  D"
-            button.toolTip = "Gaugelet — demo data"
+            button.toolTip = statusToolTip(for: snapshot, demo: true)
             button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), demo data")
         }
     }
@@ -207,6 +208,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
+    private func statusToolTip(for snapshot: UsageSnapshot, demo: Bool = false) -> String {
+        guard snapshot.isSignedIn, let limit = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
+            if snapshot.plan == .cursor {
+                return "Gaugelet — open Cursor and sign in"
+            }
+            return demo ? "Gaugelet — demo data" : "Gaugelet — not connected"
+        }
+        if limit.blockedReason != nil {
+            return "Gaugelet — \(limit.compactName) · unavailable"
+        }
+        let prefix = demo ? "Gaugelet — demo · " : "Gaugelet — "
+        return "\(prefix)\(limit.compactName) · \(limit.clampedRemainingPercent)% left"
+    }
+
     private func statusValue(for snapshot: UsageSnapshot) -> String {
         guard snapshot.isSignedIn, let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else { return "—" }
         if closest.blockedReason != nil { return "blocked" }
@@ -217,7 +232,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func accessibilityLabel(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn else { return "Gaugelet, not connected" }
+        guard snapshot.isSignedIn else {
+            return snapshot.plan == .cursor ? "Gaugelet, open Cursor and sign in" : "Gaugelet, not connected"
+        }
         guard let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
             return "Gaugelet, selected allowance unavailable"
         }

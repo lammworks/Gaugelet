@@ -233,6 +233,74 @@ final class UsageStoreTests: XCTestCase {
             return XCTFail("Explicit demo selection did not publish demo data")
         }
         XCTAssertEqual(snapshot.source, .demo)
+        guard case .demo(let cursorSnapshot) = store.cursorState else {
+            return XCTFail("Demo mode did not publish Cursor preview data")
+        }
+        XCTAssertEqual(cursorSnapshot.plan, .cursor)
+        XCTAssertEqual(cursorSnapshot.limits.first?.id, "cursor:included")
+    }
+
+    @MainActor
+    func testCursorUsageDefaultsOffAndFailureDoesNotReplaceChatGPT() async {
+        let defaults = makeDefaults()
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+
+        XCTAssertFalse(store.cursorUsageEnabled)
+        store.selectedPlan = .cursor
+        XCTAssertTrue(store.showsCursorEnable)
+
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let enabled = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        let live = makeSnapshot(id: "five-hour", remainingPercent: 73)
+        enabled.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await cursor.waitForRequestCount(1)
+        await chatgpt.resolve(0, with: .success(live))
+        await cursor.resolve(0, with: .failure("cursor down"))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(enabled.state, .live(live))
+        guard case .unavailable(let message) = enabled.cursorState else {
+            return XCTFail("Expected Cursor to stay unavailable, got \(enabled.cursorState)")
+        }
+        XCTAssertTrue(message.contains("cursor down"))
+        XCTAssertEqual(enabled.menuBarLimit?.id, "five-hour")
+    }
+
+    @MainActor
+    func testPinnedCursorCounterUsesTheCursorReading() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: FailingUsageProvider(), cursorProvider: cursor)
+        let reading = DemoUsageProvider.cursorSnapshot(for: .comfortable)
+        var live = UsageSnapshot(
+            planName: reading.planName,
+            limits: reading.limits,
+            lastUpdated: reading.lastUpdated,
+            isSignedIn: true,
+            note: reading.note,
+            source: .cursorPlan,
+            sourceDetail: reading.sourceDetail
+        )
+        live.plan = .cursor
+        live.billingShape = .weeklyPool
+        live.credits = reading.credits
+
+        store.refresh()
+        await cursor.waitForRequestCount(1)
+        await cursor.resolve(0, with: .success(live))
+        await waitForStoreUpdate()
+
+        store.pinnedLimitID = "cursor:included"
+        XCTAssertEqual(store.menuBarLimit?.remainingPercent, 72)
+        XCTAssertEqual(store.menuBarUsageState, .live(live))
+        XCTAssertEqual(
+            GaugeletMenuBarPresentation.iconState(for: store.menuBarUsageState, pinnedID: store.pinnedLimitID).percent,
+            72
+        )
     }
 
     @MainActor
@@ -308,6 +376,43 @@ private enum ControlledOutcome: Sendable {
 private struct ControlledProviderError: LocalizedError, Sendable {
     let message: String
     var errorDescription: String? { message }
+}
+
+private struct FailingUsageProvider: UsageProviding {
+    func fetchSnapshot() async throws -> UsageSnapshot {
+        throw ControlledProviderError(message: "not used")
+    }
+}
+
+private actor ControlledCursorProvider: CursorPlanFetching {
+    private var continuations: [CheckedContinuation<ControlledOutcome, Never>?] = []
+
+    func fetchSnapshot() async throws -> UsageSnapshot {
+        let outcome = await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+        switch outcome {
+        case .success(let snapshot):
+            return snapshot
+        case .failure(let message):
+            throw ControlledProviderError(message: message)
+        }
+    }
+
+    func waitForRequestCount(_ expectedCount: Int) async {
+        while continuations.count < expectedCount {
+            await Task.yield()
+        }
+    }
+
+    func resolve(_ index: Int, with outcome: ControlledOutcome) {
+        guard continuations.indices.contains(index), let continuation = continuations[index] else {
+            XCTFail("No pending Cursor request at index \(index)")
+            return
+        }
+        continuations[index] = nil
+        continuation.resume(returning: outcome)
+    }
 }
 
 private actor ControlledUsageProvider: UsageProviding {

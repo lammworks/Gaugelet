@@ -42,6 +42,10 @@ See [INSTALL.md](INSTALL.md) for the complete installation path.
 
 Gaugelet displays what the local Codex App Server returns. Missing windows remain unavailable. Values can differ materially from ChatGPT's interface and either display may move faster or slower during heavy use. OpenAI's enforced limits are authoritative.
 
+## Cursor or Grok usage does not appear
+
+Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Open Cursor and sign in, then refresh. If Cursor has no saved session, Gaugelet can use a Grok sign-in in `~/.grok/auth.json`. A rejected token stays signed out until you sign in again in Cursor. Gaugelet does not show a second Grok percent on top of a Cursor reading.
+
 ## Launch at Login
 
 The toggle is disabled while Gaugelet runs from a DMG, a translocated path, or an unsupported location. Move the app to `/Applications`, quit the old copy, and open the installed copy.

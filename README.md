@@ -87,10 +87,15 @@ If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanen
 Gaugelet ── private stdio pipe ──> codex app-server ── existing Codex session ──> OpenAI
     │
     └── displays account/rateLimits/read results; stores no usage-history database
+
+Gaugelet ── read-only access token, only when enabled ──> Cursor or xAI usage endpoint
+    │
+    └── one included pool for a weekly X Subscription; distinct meters for an older Cursor plan
 ```
 
 - Gaugelet starts the locally installed `codex app-server` and makes a read-only `account/rateLimits/read` request.
-- Authentication stays with Codex. Gaugelet does not read browser cookies, Codex authentication files, access tokens, API keys, prompts, responses, or project files.
+- Authentication stays with Codex for ChatGPT. Gaugelet does not read browser cookies, Codex authentication files, API keys, prompts, responses, or project files.
+- Cursor plan usage is optional. When you enable it, Gaugelet reads one local access token, requests the current plan reading, and does not save the token. On The X Subscription that reading is the weekly pool shared by Grok and Cursor.
 - Live readings stay in memory. Preferences use standard macOS storage.
 - Demo, stale, unavailable, blocked, and signed-out states are visibly distinguished. Missing data is never replaced with a plausible-looking estimate.
 
