@@ -282,6 +282,13 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             )
         }
 
+        // A timeout or unsupported Cursor payload must stay a failure so the
+        // last good Cursor reading can remain stale. Only an explicit sign-out
+        // falls through to the Grok sign-in.
+        if let cursorFailure {
+            throw cursorFailure
+        }
+
         if case .token(let token, let userID) = grok {
             do {
                 let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: currentTime)
@@ -315,15 +322,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         }
 
         if case .unusable(let message) = grok {
-            if let cursorFailure {
-                throw CursorPlanError.grokResponse("\(cursorFailure.localizedDescription) \(message)")
-            }
             return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .grokPlan, detail: message)
         }
 
-        if let cursorFailure {
-            throw cursorFailure
-        }
         return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .cursorPlan)
     }
 
@@ -347,8 +348,8 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
                         tokens: cursorToken.map { [$0] } ?? []
                     )
                 }
-                let tokens = [cursorToken, token].compactMap { $0 }
-                return identified(CursorPlanParser.combine(cursor: cursorSnapshot, grok: grokSnapshot), tokens: tokens)
+                let identity = cursorToken.map { [$0] } ?? []
+                return identified(CursorPlanParser.combine(cursor: cursorSnapshot, grok: grokSnapshot), tokens: identity)
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
                 return identified(

@@ -336,10 +336,7 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(snapshot.limits.first { $0.id == "cursor:grok-included" }?.remainingPercent, 60)
         XCTAssertEqual(snapshot.planName, "X Subscription")
         XCTAssertTrue(snapshot.note.contains("not added"))
-        XCTAssertEqual(
-            snapshot.accountID,
-            CursorPlanParser.sessionIdentity(for: ["cursor-session-token", "grok-session-token"])
-        )
+        XCTAssertEqual(snapshot.accountID, CursorPlanParser.sessionIdentity(for: "cursor-session-token"))
         XCTAssertNotEqual(snapshot.accountID, "cursor-session-token")
         XCTAssertFalse(snapshot.accountID?.contains("cursor-session-token") == true)
         XCTAssertFalse(snapshot.accountID?.contains("grok-session-token") == true)
@@ -347,6 +344,63 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(headers.first?["x-userid"], "user-42")
         XCTAssertEqual(headers.first?["X-XAI-Token-Auth"], "xai-grok-cli")
         XCTAssertFalse(headers.contains { $0.values.contains("grok-session-token") })
+    }
+
+    func testGrokFailureKeepsTheCursorSessionIdentity() async throws {
+        let transport = SequenceTransport(responses: [
+            CursorPlanHTTPResponse(statusCode: 200, body: try periodJSON(
+                start: weeklyStart,
+                end: weeklyEnd,
+                total: 28,
+                auto: 28,
+                api: nil,
+                prepaidCents: nil
+            )),
+            CursorPlanHTTPResponse(statusCode: 500, body: Data())
+        ])
+        let provider = CursorPlanProvider(
+            locator: CursorCredentialLocator(
+                cursorDatabaseURL: try makeCursorDatabase(token: "cursor-session-token"),
+                grokAuthURL: try makeGrokAuth(token: "grok-session-token")
+            ),
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+
+        let snapshot = try await provider.fetchSnapshot()
+
+        XCTAssertEqual(snapshot.source, .cursorPlan)
+        XCTAssertEqual(snapshot.accountID, CursorPlanParser.sessionIdentity(for: "cursor-session-token"))
+        XCTAssertEqual(snapshot.limits.map(\.id), ["cursor:included", "cursor:models"])
+        XCTAssertTrue(snapshot.sourceDetail.contains("HTTP 500"))
+        XCTAssertFalse(snapshot.accountID?.contains("grok-session-token") == true)
+    }
+
+    func testCursorTransportFailureDoesNotBecomeAGrokSignIn() async throws {
+        let transport = SequenceTransport(responses: [
+            CursorPlanHTTPResponse(statusCode: 503, body: Data()),
+            CursorPlanHTTPResponse(statusCode: 503, body: Data()),
+            CursorPlanHTTPResponse(statusCode: 200, body: Data(#"""
+            {"config":{"creditUsagePercent":10,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-10-25T06:32:13.504Z"}}}
+            """#.utf8))
+        ])
+        let provider = CursorPlanProvider(
+            locator: CursorCredentialLocator(
+                cursorDatabaseURL: try makeCursorDatabase(token: "cursor-session-token"),
+                grokAuthURL: try makeGrokAuth(token: "grok-session-token")
+            ),
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+
+        do {
+            _ = try await provider.fetchSnapshot()
+            XCTFail("Expected the Cursor failure to propagate")
+        } catch {
+            XCTAssertEqual(error as? CursorPlanError, .invalidResponse)
+        }
+        let requested = await transport.requested
+        XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL, CursorPlanParser.fallbackPeriodURL])
     }
 
     func testRejectedCursorSessionShowsGrokWhenThatSignInWorks() async throws {
