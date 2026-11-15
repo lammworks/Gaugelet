@@ -185,7 +185,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
     init(
         locator: CursorCredentialLocator = .live(),
         transport: any CursorPlanTransport = URLSessionCursorPlanTransport(),
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.locator = locator
         self.transport = transport

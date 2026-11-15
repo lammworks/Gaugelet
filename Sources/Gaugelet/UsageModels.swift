@@ -469,7 +469,7 @@ enum DemoUsageProvider {
     static func cursorSnapshot(for scenario: DemoScenario, now: Date = Date()) -> UsageSnapshot {
         switch scenario {
         case .comfortable:
-            cursorSnapshot(
+            return cursorSnapshot(
                 remaining: 72,
                 reset: now.addingTimeInterval(4 * 24 * 60 * 60 + 6 * 60 * 60),
                 signedIn: true,
@@ -478,7 +478,7 @@ enum DemoUsageProvider {
                 now: now
             )
         case .low:
-            cursorSnapshot(
+            return cursorSnapshot(
                 remaining: 16,
                 reset: now.addingTimeInterval(2 * 24 * 60 * 60 + 4 * 60 * 60),
                 signedIn: true,
@@ -487,7 +487,7 @@ enum DemoUsageProvider {
                 now: now
             )
         case .capped:
-            cursorSnapshot(
+            return cursorSnapshot(
                 remaining: 0,
                 reset: now.addingTimeInterval(18 * 60 * 60),
                 signedIn: true,
@@ -496,7 +496,7 @@ enum DemoUsageProvider {
                 now: now
             )
         case .signedOut:
-            var snapshot = cursorSnapshot(
+            return cursorSnapshot(
                 remaining: 0,
                 reset: nil,
                 signedIn: false,
@@ -504,9 +504,6 @@ enum DemoUsageProvider {
                 additional: nil,
                 now: now
             )
-            snapshot.limits = []
-            snapshot.credits = []
-            return snapshot
         }
     }
 
@@ -520,7 +517,7 @@ enum DemoUsageProvider {
     ) -> UsageSnapshot {
         var snapshot = UsageSnapshot(
             planName: signedIn ? "X Subscription" : "Not connected",
-            limits: [
+            limits: signedIn ? [
                 UsageLimit(
                     id: "cursor:included",
                     name: "Included usage",
@@ -537,7 +534,7 @@ enum DemoUsageProvider {
                     bucketID: "b-models",
                     contextNote: "Grok and Composer · same weekly pool"
                 )
-            ],
+            ] : [],
             lastUpdated: now,
             isSignedIn: signedIn,
             note: note,

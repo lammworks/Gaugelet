@@ -189,13 +189,13 @@ struct UsagePopoverRoot: View {
         if store.showsCursorEnable { return .secondary }
         switch store.presentedState {
         case .stale, .unavailable:
-            GaugeletPalette.coral
+            return GaugeletPalette.coral
         case .loading:
-            .secondary
+            return .secondary
         case .live(let snapshot):
-            snapshot.isSignedIn ? accent : .secondary
+            return snapshot.isSignedIn ? accent : .secondary
         case .demo:
-            GaugeletPalette.copper
+            return GaugeletPalette.copper
         }
     }
 }
