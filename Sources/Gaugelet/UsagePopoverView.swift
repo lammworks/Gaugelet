@@ -579,11 +579,11 @@ private struct UsageDashboard: View {
             .frame(width: 52, height: 52)
             .accessibilityHidden(true)
 
-            Text(signedOutTitle(for: snapshot))
+            Text(snapshot.signedOutHeading)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.top, 14)
 
-            Text(signedOutMessage(for: snapshot))
+            Text(snapshot.signedOutGuidance)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -593,8 +593,17 @@ private struct UsageDashboard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(8)
 
-            if let panel = snapshot.grokPanel, case .login(let reason) = panel {
-                grokLoginCard(reason: reason)
+            if let panel = snapshot.grokPanel, case .login(let reason, let pathLabel) = panel {
+                if snapshot.source == .cursorPlan {
+                    Button("Open Cursor") {
+                        store.open(.cursorDashboard)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .controlSize(.regular)
+                    .padding(.top, 16)
+                }
+                grokLoginCard(reason: reason, pathLabel: pathLabel)
                     .padding(.horizontal, 8)
                     .padding(.top, 12)
             } else if snapshot.source != .demo {
@@ -654,25 +663,6 @@ private struct UsageDashboard: View {
         return message.localizedCaseInsensitiveContains("grok") ? "Grok usage unavailable" : "Cursor usage unavailable"
     }
 
-    private func signedOutTitle(for snapshot: UsageSnapshot) -> String {
-        if snapshot.source == .demo { return "Signed-out demo" }
-        if snapshot.source == .grokPlan || snapshot.grokPanel != nil { return "Grok is not signed in" }
-        return snapshot.plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
-    }
-
-    private func signedOutMessage(for snapshot: UsageSnapshot) -> String {
-        if snapshot.source == .demo {
-            return "This preview contains demo data only. No account information is being read."
-        }
-        if snapshot.plan == .cursor {
-            if case .login = snapshot.grokPanel {
-                return "The sign-in command is grok login. Opening grok.com does not update Gaugelet."
-            }
-            return "Open the Cursor app and sign in, then refresh Gaugelet."
-        }
-        return "Sign in to Codex, then refresh Gaugelet to read live usage."
-    }
-
     private func signedOutButtonTitle(for snapshot: UsageSnapshot) -> String {
         if snapshot.source == .grokPlan { return "Open Grok usage" }
         return snapshot.plan == .cursor ? "Open Cursor" : "Codex setup guide"
@@ -717,8 +707,8 @@ private struct UsageDashboard: View {
     @ViewBuilder
     private func grokPanel(_ panel: GrokPanel) -> some View {
         switch panel {
-        case .login(let reason):
-            grokLoginCard(reason: reason)
+        case .login(let reason, let pathLabel):
+            grokLoginCard(reason: reason, pathLabel: pathLabel)
         case .status(let message):
             Text(message)
                 .font(.system(size: 10.5))
@@ -727,7 +717,7 @@ private struct UsageDashboard: View {
         }
     }
 
-    private func grokLoginCard(reason: String) -> some View {
+    private func grokLoginCard(reason: String, pathLabel: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Run this in Terminal")
                 .font(.system(size: 11, weight: .semibold))
@@ -740,7 +730,7 @@ private struct UsageDashboard: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-            Text("Gaugelet reads ~/.grok/auth.json afterward. It does not refresh tokens.")
+            Text("Gaugelet reads \(pathLabel) afterward. It does not refresh tokens.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

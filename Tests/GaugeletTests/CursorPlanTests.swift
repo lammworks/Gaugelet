@@ -229,6 +229,76 @@ final class CursorPlanTests: XCTestCase {
         )
     }
 
+    func testMenuBarKeepsBlockedChatGPTAndNamesEachStatus() {
+        let blocked = UsageSnapshot(
+            planName: "ChatGPT Plus",
+            limits: [
+                UsageLimit(
+                    id: "five-hour",
+                    name: "5-hour limit",
+                    remainingPercent: 70,
+                    resetDate: nil,
+                    blockedReason: "Workspace credits depleted"
+                )
+            ],
+            lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+            isSignedIn: true,
+            note: "",
+            source: .codexAppServer,
+            sourceDetail: "Test"
+        )
+        let signedOut = UsageSnapshot(
+            planName: "Not connected",
+            limits: [],
+            lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+            isSignedIn: false,
+            note: "",
+            source: .codexAppServer,
+            sourceDetail: "Test"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.title(
+                chatgpt: .live(blocked),
+                cursor: .loading,
+                cursorEnabled: false,
+                showPercentage: true
+            ),
+            "blocked"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(chatgpt: .live(blocked), cursor: .loading, cursorEnabled: false),
+            "Gaugelet — ChatGPT blocked"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(chatgpt: .loading, cursor: .loading, cursorEnabled: true),
+            "Gaugelet — ChatGPT connecting. Grok connecting"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(
+                chatgpt: .unavailable(errorMessage: "offline"),
+                cursor: .loading,
+                cursorEnabled: false
+            ),
+            "Gaugelet — ChatGPT unavailable"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(chatgpt: .live(signedOut), cursor: .live(signedOut), cursorEnabled: true),
+            "Gaugelet — ChatGPT signed out. Grok signed out"
+        )
+    }
+
+    func testDemoMenuBarShowsTheSharedWeeklyPool() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let title = GaugeletMenuBarStatus.title(
+            chatgpt: .demo(DemoUsageProvider.snapshot(for: .comfortable, now: now)),
+            cursor: .demo(DemoUsageProvider.cursorSnapshot(for: .comfortable, now: now)),
+            cursorEnabled: true,
+            showPercentage: true
+        )
+        XCTAssertTrue(title.contains("G 72%"))
+        XCTAssertFalse(title.contains("G —"))
+    }
+
     func testGrokMonthlyCentsAndAZeroUsagePeriodStayExplicit() throws {
         let monthly = Data(#"""
         {"config":{"monthlyLimit":{"val":15000},"used":{"val":2931},"billingPeriodStart":"2026-07-01T00:00:00Z","billingPeriodEnd":"2026-08-01T00:00:00Z"}}
@@ -501,7 +571,44 @@ final class CursorPlanTests: XCTestCase {
 
         XCTAssertFalse(snapshot.isSignedIn)
         XCTAssertNil(snapshot.accountID)
+        XCTAssertEqual(snapshot.source, .cursorPlan)
+        XCTAssertEqual(snapshot.signedOutHeading, "Cursor is not signed in")
+        XCTAssertEqual(
+            snapshot.signedOutGuidance,
+            "Open the Cursor app and sign in, then refresh Gaugelet."
+        )
+        guard case .login(let reason, let path) = snapshot.grokPanel else {
+            XCTFail("Expected the missing Grok file to stay on its own card")
+            return
+        }
+        XCTAssertEqual(path, "$GROK_HOME/auth.json")
+        XCTAssertTrue(reason.contains(path))
+        XCTAssertFalse(snapshot.signedOutGuidance.localizedCaseInsensitiveContains("grok login"))
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL])
+    }
+
+    func testUnusableGrokFileKeepsItsPathAndKeyNames() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let customAuth = try authFile(root.appendingPathComponent("grok-home", isDirectory: true), body: #"{"note":"shape"}"#)
+        let custom = try await providerReading(auth: customAuth)
+        guard case .login(let customReason, let customPath) = custom.grokPanel else {
+            XCTFail("Expected a Grok login card")
+            return
+        }
+        XCTAssertEqual(customPath, "$GROK_HOME/auth.json")
+        XCTAssertTrue(customReason.contains("$GROK_HOME/auth.json"))
+        XCTAssertTrue(customReason.contains("Keys present"))
+        XCTAssertEqual(custom.signedOutHeading, "Grok is not signed in")
+
+        let homeAuth = try authFile(root.appendingPathComponent(".grok", isDirectory: true), body: #"{"note":"shape"}"#)
+        let home = try await providerReading(auth: homeAuth)
+        guard case .login(let homeReason, let homePath) = home.grokPanel else {
+            XCTFail("Expected a Grok login card")
+            return
+        }
+        XCTAssertEqual(homePath, "~/.grok/auth.json")
+        XCTAssertTrue(homeReason.contains("~/.grok/auth.json"))
+        XCTAssertTrue(homeReason.contains("Keys present"))
     }
 
     func testUnavailableCurrentPeriodFallsBackWithoutUsingTheMonthlySummary() async throws {
@@ -649,6 +756,17 @@ final class CursorPlanTests: XCTestCase {
         if let planName { object["planName"] = planName }
         if let prepaidCents { object["prepaidBalanceCents"] = prepaidCents }
         return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private func providerReading(auth: URL) async throws -> UsageSnapshot {
+        let provider = CursorPlanProvider(
+            locator: CursorCredentialLocator(
+                cursorDatabaseURL: auth.deletingLastPathComponent().appendingPathComponent("missing.vscdb"),
+                grokAuthURL: auth
+            ),
+            transport: SequenceTransport(responses: [])
+        )
+        return try await provider.fetchSnapshot()
     }
 
     private func makeCursorDatabase(token: String) throws -> URL {

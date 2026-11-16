@@ -56,7 +56,7 @@ enum GaugeletMenuBarPresentation {
 
 enum MenuBarSlot: Equatable {
     case percent(Int)
-    case marked(String)
+    case marked(mark: String, status: String)
 }
 
 struct MenuBarPiece: Equatable {
@@ -94,10 +94,8 @@ enum GaugeletMenuBarStatus {
             switch piece.slot {
             case .percent(let value):
                 "\(piece.label) \(value)% left"
-            case .marked(let mark) where mark == "!":
-                "\(piece.label) stale"
-            case .marked:
-                "\(piece.label) unavailable"
+            case .marked(_, let status):
+                "\(piece.label) \(status)"
             }
         }.joined(separator: ". ")
         return "Gaugelet — \(detail)"
@@ -111,14 +109,21 @@ enum GaugeletMenuBarStatus {
             }
         }
         guard !visible.isEmpty else { return "" }
-        if visible.count == 1, visible[0].label == "GPT", case .percent(let value) = visible[0].slot {
-            return "\(value)%"
+        if visible.count == 1, visible[0].label == "GPT" {
+            switch visible[0].slot {
+            case .percent(let value):
+                return "\(value)%"
+            case .marked(let mark, _) where mark == "blocked":
+                return "blocked"
+            default:
+                break
+            }
         }
         return visible.map { piece in
             switch piece.slot {
             case .percent(let value):
                 "\(piece.label) \(value)%"
-            case .marked(let mark):
+            case .marked(let mark, _):
                 "\(piece.label) \(mark)"
             }
         }.joined(separator: " · ")
@@ -126,21 +131,37 @@ enum GaugeletMenuBarStatus {
 
     private static func piece(for state: UsageState, label: String, poolID: String?) -> MenuBarPiece? {
         switch state {
-        case .loading, .unavailable:
-            return poolID == nil ? MenuBarPiece(label: label, slot: .marked("—")) : MenuBarPiece(label: label, slot: .marked("—"))
+        case .loading:
+            return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "connecting"))
+        case .unavailable:
+            return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "unavailable"))
         case .stale:
-            return MenuBarPiece(label: label, slot: .marked("!"))
+            return MenuBarPiece(label: label, slot: .marked(mark: "!", status: "stale"))
         case .live(let snapshot), .demo(let snapshot):
             guard snapshot.isSignedIn else {
-                return MenuBarPiece(label: label, slot: .marked("—"))
+                return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "signed out"))
             }
-            let limit = poolID.flatMap { id in snapshot.limits.first { $0.id == id } }
-                ?? (poolID == nil ? snapshot.menuBarLimit(pinnedID: "") : nil)
-            guard let limit, limit.blockedReason == nil else {
-                return poolID == nil ? nil : MenuBarPiece(label: label, slot: .marked("—"))
+            guard let limit = poolLimit(in: snapshot, poolID: poolID) else {
+                return poolID == nil ? nil : MenuBarPiece(label: label, slot: .marked(mark: "—", status: "unavailable"))
+            }
+            if limit.blockedReason != nil {
+                return MenuBarPiece(label: label, slot: .marked(mark: "blocked", status: "blocked"))
             }
             return MenuBarPiece(label: label, slot: .percent(limit.clampedRemainingPercent))
         }
+    }
+
+    private static func poolLimit(in snapshot: UsageSnapshot, poolID: String?) -> UsageLimit? {
+        if let poolID {
+            if let match = snapshot.limits.first(where: { $0.id == poolID }) {
+                return match
+            }
+            if poolID == "cursor:grok-included", snapshot.source == .demo {
+                return snapshot.limits.first { $0.id == "cursor:included" }
+            }
+            return nil
+        }
+        return snapshot.menuBarLimit(pinnedID: "")
     }
 
     private static func isDemo(_ state: UsageState) -> Bool {

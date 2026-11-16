@@ -299,15 +299,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
                     return identified(reading, tokens: [token])
                 }
                 if let cursorSnapshot {
-                    return CursorPlanParser.withGrokPanel(
-                        cursorSnapshot,
-                        .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
-                    )
+                    return CursorPlanParser.withGrokPanel(cursorSnapshot, rejectedGrokLogin())
                 }
-                return CursorPlanParser.withGrokPanel(
-                    grokSnapshot,
-                    .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
-                )
+                return CursorPlanParser.withGrokPanel(grokSnapshot, rejectedGrokLogin())
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
                 if let cursorSnapshot {
@@ -333,24 +327,38 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
                 source: .grokPlan,
                 detail: "Run `grok login` in Terminal. Gaugelet does not refresh tokens."
             ),
-            grokLoginPanel(grok) ?? .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")
+            grokLoginPanel(grok) ?? missingGrokLogin()
+        )
+    }
+
+    private var grokPathLabel: String {
+        CursorCredentialLocator.grokPathLabel(for: locator.grokAuthURL)
+    }
+
+    private func missingGrokLogin() -> GrokPanel {
+        let path = grokPathLabel
+        return .login(
+            reason: "No Grok sign-in was found in \(path). Run `grok login`, then refresh. Gaugelet does not read the keychain.",
+            pathLabel: path
+        )
+    }
+
+    private func rejectedGrokLogin() -> GrokPanel {
+        let path = grokPathLabel
+        return .login(
+            reason: "The Grok sign-in in \(path) was rejected. Run `grok login`, then refresh. Gaugelet does not refresh tokens.",
+            pathLabel: path
         )
     }
 
     private func grokLoginPanel(_ credential: GrokCredential) -> GrokPanel? {
         switch credential {
         case .missing:
-            return .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")
+            return missingGrokLogin()
         case .token:
             return nil
         case .unusable(let message):
-            if message.contains("expires_at is in the past") {
-                return .login(reason: "The Grok sign-in in ~/.grok/auth.json is expired.")
-            }
-            if message.contains("API key") {
-                return .login(reason: "An API key is not a Grok sign-in.")
-            }
-            return .login(reason: "The Grok sign-in in ~/.grok/auth.json could not be used.")
+            return .login(reason: message, pathLabel: grokPathLabel)
         }
     }
 
@@ -363,7 +371,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         switch credential {
         case .missing:
             return identified(
-                CursorPlanParser.withGrokPanel(cursorSnapshot, .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")),
+                CursorPlanParser.withGrokPanel(cursorSnapshot, missingGrokLogin()),
                 tokens: cursorToken.map { [$0] } ?? []
             )
         case .unusable(let message):
@@ -376,10 +384,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
                 let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: now)
                 guard grokSnapshot.isSignedIn else {
                     return identified(
-                        CursorPlanParser.withGrokPanel(
-                            cursorSnapshot,
-                            .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
-                        ),
+                        CursorPlanParser.withGrokPanel(cursorSnapshot, rejectedGrokLogin()),
                         tokens: cursorToken.map { [$0] } ?? []
                     )
                 }

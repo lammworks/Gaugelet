@@ -53,7 +53,7 @@ enum UsageBillingShape: Equatable, Sendable {
 }
 
 enum GrokPanel: Equatable, Sendable {
-    case login(reason: String)
+    case login(reason: String, pathLabel: String)
     case status(String)
 
     static let command = "grok login"
@@ -291,6 +291,25 @@ struct UsageSnapshot: Equatable, Sendable {
     var billingShape: UsageBillingShape = .chatGPT
     var grokPanel: GrokPanel? = nil
     var grokProductShares: [GrokProductShare] = []
+
+    var signedOutHeading: String {
+        if source == .demo { return "Signed-out demo" }
+        if source == .grokPlan { return "Grok is not signed in" }
+        return plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
+    }
+
+    var signedOutGuidance: String {
+        if source == .demo {
+            return "This preview contains demo data only. No account information is being read."
+        }
+        if source == .grokPlan {
+            return "The sign-in command is grok login. Opening grok.com does not update Gaugelet."
+        }
+        if plan == .cursor {
+            return "Open the Cursor app and sign in, then refresh Gaugelet."
+        }
+        return "Sign in to Codex, then refresh Gaugelet to read live usage."
+    }
 
     // Ordering never depends on consumption or reset timestamps.
     var orderedLimits: [UsageLimit] {
