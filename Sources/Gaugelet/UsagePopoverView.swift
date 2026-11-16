@@ -61,6 +61,15 @@ private extension EnvironmentValues {
     }
 }
 
+enum GaugeletPopoverMetrics {
+    static let width: CGFloat = 336
+
+    static var maxHeight: CGFloat {
+        let visible = NSScreen.main?.visibleFrame.height ?? 900
+        return max(420, visible - 28)
+    }
+}
+
 struct UsagePopoverRoot: View {
     @ObservedObject var store: UsageStore
     let onHoverChanged: (Bool) -> Void
@@ -95,28 +104,15 @@ struct UsagePopoverRoot: View {
             }
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-
-                Divider()
-                    .opacity(0.35)
-
-                Group {
-                    if showingSettings {
-                        SettingsView(
-                            store: store,
-                            onCheckForUpdates: onCheckForUpdates
-                        )
-                            .transition(.opacity)
-                    } else {
-                        UsageDashboard(store: store)
-                            .transition(.opacity)
-                    }
+            ViewThatFits(in: .vertical) {
+                popoverColumn
+                ScrollView(.vertical) {
+                    popoverColumn
                 }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showingSettings)
             }
         }
-        .frame(width: 336, height: 466)
+        .frame(width: GaugeletPopoverMetrics.width)
+        .frame(maxHeight: GaugeletPopoverMetrics.maxHeight, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .environment(\.gaugeletAccent, accent)
         .tint(accent)
@@ -125,6 +121,30 @@ struct UsagePopoverRoot: View {
 
     private var accent: Color {
         GaugeletPalette.accent(for: store.iconStyle)
+    }
+
+    private var popoverColumn: some View {
+        VStack(spacing: 0) {
+            header
+
+            Divider()
+                .opacity(0.35)
+
+            Group {
+                if showingSettings {
+                    SettingsView(
+                        store: store,
+                        onCheckForUpdates: onCheckForUpdates
+                    )
+                    .transition(.opacity)
+                } else {
+                    UsageDashboard(store: store)
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showingSettings)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var header: some View {
@@ -326,13 +346,6 @@ private struct UsageDashboard: View {
                     Text(snapshot.planName)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                    if snapshot.plan == .cursor, !snapshot.note.isEmpty {
-                        Text(snapshot.note)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .lineLimit(4)
-                    }
                 }
                 Spacer()
                 if store.presentedIsRefreshing {
@@ -345,11 +358,16 @@ private struct UsageDashboard: View {
                     .accessibilityLabel("Refresh usage")
                 }
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                     if snapshot.orderedLimits.isEmpty {
                         Text("Allowance windows unavailable")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    if let panel = snapshot.grokPanel {
+                        grokPanel(panel)
+                    }
+                    if !snapshot.grokProductShares.isEmpty {
+                        grokPoolShares(snapshot)
                     }
                     VStack(spacing: 0) {
                         ForEach(snapshot.orderedLimits) { limit in
@@ -422,8 +440,6 @@ private struct UsageDashboard: View {
                         activityContent
                     }
                 }
-            }
-            .scrollIndicators(.visible)
             stateNotice
             footer(snapshot: snapshot)
         }
@@ -577,7 +593,11 @@ private struct UsageDashboard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(8)
 
-            if snapshot.source != .demo {
+            if let panel = snapshot.grokPanel, case .login(let reason) = panel {
+                grokLoginCard(reason: reason)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 12)
+            } else if snapshot.source != .demo {
                 Button(signedOutButtonTitle(for: snapshot)) {
                     store.open(signedOutLink(for: snapshot))
                 }
@@ -636,7 +656,7 @@ private struct UsageDashboard: View {
 
     private func signedOutTitle(for snapshot: UsageSnapshot) -> String {
         if snapshot.source == .demo { return "Signed-out demo" }
-        if snapshot.source == .grokPlan { return "Grok is not signed in" }
+        if snapshot.source == .grokPlan || snapshot.grokPanel != nil { return "Grok is not signed in" }
         return snapshot.plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
     }
 
@@ -645,11 +665,10 @@ private struct UsageDashboard: View {
             return "This preview contains demo data only. No account information is being read."
         }
         if snapshot.plan == .cursor {
-            let detail = snapshot.sourceDetail.trimmingCharacters(in: .whitespacesAndNewlines)
-            if snapshot.source == .grokPlan || detail.contains("auth.json") || detail.contains("grok login") {
-                return detail
+            if case .login = snapshot.grokPanel {
+                return "The sign-in command is grok login. Opening grok.com does not update Gaugelet."
             }
-            return "Open Cursor and sign in, then refresh Gaugelet. If Cursor has no session, Gaugelet can use a local Grok sign-in in ~/.grok/auth.json."
+            return "Open the Cursor app and sign in, then refresh Gaugelet."
         }
         return "Sign in to Codex, then refresh Gaugelet to read live usage."
     }
@@ -695,6 +714,90 @@ private struct UsageDashboard: View {
             .accessibilityHint(store.presentedState.detail(for: store.selectedPlan))
     }
 
+    @ViewBuilder
+    private func grokPanel(_ panel: GrokPanel) -> some View {
+        switch panel {
+        case .login(let reason):
+            grokLoginCard(reason: reason)
+        case .status(let message):
+            Text(message)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func grokLoginCard(reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Run this in Terminal")
+                .font(.system(size: 11, weight: .semibold))
+            Text(reason)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(GrokPanel.command)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+            Text("Gaugelet reads ~/.grok/auth.json afterward. It does not refresh tokens.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Copy command") { copyGrokLoginCommand() }
+                Button("Open Terminal") { openTerminal() }
+                Button("Retry") { store.refreshPresented() }
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func grokPoolShares(_ snapshot: UsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("GROK BUILD AND GROK")
+                .font(.system(size: 9.5, weight: .semibold))
+                .tracking(0.5)
+            Text("Grok Build is the grok coding CLI. It uses this same weekly plan. It is not a separate allowance, and it is not the Cursor app meter.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            PoolShareBar(shares: snapshot.grokProductShares)
+                .frame(height: 8)
+            ForEach(snapshot.grokProductShares) { share in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(share.name)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                        Text(share.detail)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Text("\(share.usedPercent)% of plan")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func copyGrokLoginCommand() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(GrokPanel.command, forType: .string)
+    }
+
+    private func openTerminal() {
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        NSWorkspace.shared.open(terminal)
+    }
+
     private func footer(snapshot: UsageSnapshot) -> some View {
         HStack(spacing: 4) {
             Text(store.presentedState.badgeTitle == "STALE" ? "Last live check" : "Checked")
@@ -710,6 +813,38 @@ private struct UsageDashboard: View {
         .foregroundStyle(.secondary)
     }
 
+}
+
+private struct PoolShareBar: View {
+    let shares: [GrokProductShare]
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 1) {
+                ForEach(Array(shares.enumerated()), id: \.element.id) { index, share in
+                    Rectangle()
+                        .fill(color(index))
+                        .frame(width: max(proxy.size.width * CGFloat(share.usedPercent) / 100, share.usedPercent > 0 ? 2 : 0))
+                }
+                Spacer(minLength: 0)
+            }
+            .background(Color.primary.opacity(0.08))
+        }
+        .clipShape(Capsule())
+        .accessibilityLabel("Weekly plan shares")
+    }
+
+    private func color(_ index: Int) -> Color {
+        let colors: [Color] = [
+            GaugeletPalette.copper,
+            GaugeletPalette.coral,
+            Color.blue.opacity(0.75),
+            Color.teal.opacity(0.8),
+            Color.purple.opacity(0.7),
+            Color.orange.opacity(0.8)
+        ]
+        return colors[index % colors.count]
+    }
 }
 
 private struct AllowanceRow: View {
@@ -741,9 +876,9 @@ private struct AllowanceRow: View {
                 fraction: limit.remainingFraction,
                 tone: limit.tone(warningThreshold: warningThreshold)
             )
-            .frame(height: 5)
+            .frame(height: 4)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 
@@ -798,8 +933,7 @@ private struct SettingsView: View {
     @Environment(\.gaugeletAccent) private var accent
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
                 Text("Settings")
                     .font(.system(size: 17, weight: .semibold))
 
@@ -1006,7 +1140,6 @@ private struct SettingsView: View {
                 }
             }
             .padding(16)
-        }
         .font(.system(size: 11.5))
         .onAppear {
             launchAtLogin.refresh()

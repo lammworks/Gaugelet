@@ -295,37 +295,63 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
                 if grokSnapshot.isSignedIn {
                     let reading = cursorToken == nil
                         ? grokSnapshot
-                        : CursorPlanParser.withNotice(
-                            grokSnapshot,
-                            notice: "Cursor rejected the saved sign-in. Showing the Grok sign-in only."
-                        )
+                        : CursorPlanParser.withCursorSignInRow(grokSnapshot)
                     return identified(reading, tokens: [token])
                 }
                 if let cursorSnapshot {
-                    return CursorPlanParser.withNotice(cursorSnapshot, notice: grokSnapshot.sourceDetail)
+                    return CursorPlanParser.withGrokPanel(
+                        cursorSnapshot,
+                        .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
+                    )
                 }
-                return grokSnapshot
+                return CursorPlanParser.withGrokPanel(
+                    grokSnapshot,
+                    .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
+                )
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
                 if let cursorSnapshot {
-                    return CursorPlanParser.withNotice(cursorSnapshot, notice: message)
+                    return identified(
+                        CursorPlanParser.withGrokPanel(
+                            CursorPlanParser.withNotice(cursorSnapshot, notice: message),
+                            .status(message)
+                        ),
+                        tokens: cursorToken.map { [$0] } ?? []
+                    )
                 }
                 throw error
             }
         }
 
         if let cursorSnapshot {
-            if case .unusable(let message) = grok {
-                return CursorPlanParser.withNotice(cursorSnapshot, notice: message)
+            return CursorPlanParser.withGrokPanel(cursorSnapshot, grokLoginPanel(grok))
+        }
+
+        return CursorPlanParser.withGrokPanel(
+            CursorPlanParser.signedOutSnapshot(
+                now: currentTime,
+                source: .grokPlan,
+                detail: "Run `grok login` in Terminal. Gaugelet does not refresh tokens."
+            ),
+            grokLoginPanel(grok) ?? .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")
+        )
+    }
+
+    private func grokLoginPanel(_ credential: GrokCredential) -> GrokPanel? {
+        switch credential {
+        case .missing:
+            return .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")
+        case .token:
+            return nil
+        case .unusable(let message):
+            if message.contains("expires_at is in the past") {
+                return .login(reason: "The Grok sign-in in ~/.grok/auth.json is expired.")
             }
-            return cursorSnapshot
+            if message.contains("API key") {
+                return .login(reason: "An API key is not a Grok sign-in.")
+            }
+            return .login(reason: "The Grok sign-in in ~/.grok/auth.json could not be used.")
         }
-
-        if case .unusable(let message) = grok {
-            return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .grokPlan, detail: message)
-        }
-
-        return CursorPlanParser.signedOutSnapshot(now: currentTime, source: .cursorPlan)
     }
 
     private func attachingGrok(
@@ -336,15 +362,24 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
     ) async -> UsageSnapshot {
         switch credential {
         case .missing:
-            return identified(cursorSnapshot, tokens: cursorToken.map { [$0] } ?? [])
+            return identified(
+                CursorPlanParser.withGrokPanel(cursorSnapshot, .login(reason: "No Grok sign-in was found in ~/.grok/auth.json.")),
+                tokens: cursorToken.map { [$0] } ?? []
+            )
         case .unusable(let message):
-            return identified(CursorPlanParser.withNotice(cursorSnapshot, notice: message), tokens: cursorToken.map { [$0] } ?? [])
+            return identified(
+                CursorPlanParser.withGrokPanel(cursorSnapshot, grokLoginPanel(.unusable(message: message))),
+                tokens: cursorToken.map { [$0] } ?? []
+            )
         case .token(let token, let userID):
             do {
                 let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: now)
                 guard grokSnapshot.isSignedIn else {
                     return identified(
-                        CursorPlanParser.withNotice(cursorSnapshot, notice: grokSnapshot.sourceDetail),
+                        CursorPlanParser.withGrokPanel(
+                            cursorSnapshot,
+                            .login(reason: "The Grok sign-in in ~/.grok/auth.json was rejected.")
+                        ),
                         tokens: cursorToken.map { [$0] } ?? []
                     )
                 }
@@ -353,7 +388,10 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Grok usage could not be read."
                 return identified(
-                    CursorPlanParser.withNotice(cursorSnapshot, notice: message),
+                    CursorPlanParser.withGrokPanel(
+                        CursorPlanParser.withNotice(cursorSnapshot, notice: message),
+                        .status(message)
+                    ),
                     tokens: cursorToken.map { [$0] } ?? []
                 )
             }
@@ -661,34 +699,24 @@ enum CursorPlanParser {
             limits.append(grokIncludedLimit(remaining: 100, reset: end, weekly: weekly))
         }
 
-        let products = (config["productUsage"] as? [Any] ?? json["productUsage"] as? [Any] ?? []).prefix(8)
-        var productRows: [UsageLimit] = []
+        let products = (config["productUsage"] as? [Any] ?? json["productUsage"] as? [Any] ?? []).prefix(16)
+        var shares: [GrokProductShare] = []
         for item in products {
             guard let row = item as? [String: Any] else { continue }
             let rawName = (row["product"] as? String) ?? (row["productName"] as? String) ?? ""
-            guard let name = displayLabel(rawName),
+            guard let name = grokProductName(rawName),
                   let percent = finiteNumber(row["usagePercent"] ?? row["usage_percent"]),
-                  percent.isFinite, percent >= 0,
-                  let remaining = remainingPercent(used: min(percent, 100))
+                  percent.isFinite, percent >= 0, percent <= 100
             else { continue }
-            productRows.append(
-                UsageLimit(
-                    id: grokProductID(name, existing: productRows.map(\.id)),
+            shares.append(
+                GrokProductShare(
+                    id: grokProductID(rawName, existing: shares.map(\.id)),
                     name: name,
-                    remainingPercent: remaining,
-                    resetDate: end,
-                    bucketID: "h-grok-product",
-                    contextNote: "Grok sign-in · part of the weekly credits"
+                    usedPercent: Int(percent.rounded()),
+                    detail: grokProductNote(rawName)
                 )
             )
         }
-        if productRows.count == 1,
-           let headline = usedPercent,
-           let only = finiteNumber((products.first as? [String: Any])?["usagePercent"]),
-           abs(only - headline) <= 0.05 {
-            productRows = []
-        }
-        limits.append(contentsOf: productRows)
 
         if let onDemandCap, onDemandCap > 0, let onDemandUsed, onDemandUsed >= 0,
            let remaining = remainingPercent(usedCents: onDemandUsed, limitCents: onDemandCap) {
@@ -719,9 +747,7 @@ enum CursorPlanParser {
             limits: limits,
             lastUpdated: now,
             isSignedIn: true,
-            note: weekly
-                ? "Grok sign-in weekly credits. This is separate from the Cursor plan reading."
-                : "Grok sign-in usage for this billing period.",
+            note: "",
             source: .grokPlan,
             sourceDetail: "Grok plan usage. Read-only via the local Grok sign-in in ~/.grok/auth.json."
         )
@@ -730,6 +756,7 @@ enum CursorPlanParser {
         if let prepaid = prepaidCredit(from: config, id: "grok:prepaid") ?? prepaidCredit(from: json, id: "grok:prepaid") {
             snapshot.credits = [prepaid]
         }
+        snapshot.grokProductShares = shares
         return snapshot
     }
 
@@ -821,14 +848,49 @@ enum CursorPlanParser {
     }
 
     static func withNotice(_ snapshot: UsageSnapshot, notice: String) -> UsageSnapshot {
+        copy(
+            snapshot,
+            note: joinedNotice(snapshot.note, notice),
+            sourceDetail: joinedNotice(snapshot.sourceDetail, notice)
+        )
+    }
+
+    static func withGrokPanel(_ snapshot: UsageSnapshot, _ panel: GrokPanel?) -> UsageSnapshot {
+        var updated = copy(snapshot)
+        updated.grokPanel = panel
+        return updated
+    }
+
+    static func withCursorSignInRow(_ snapshot: UsageSnapshot) -> UsageSnapshot {
+        guard !snapshot.limits.contains(where: { $0.id == "cursor:session" }) else { return snapshot }
+        var limits = snapshot.limits
+        limits.insert(
+            UsageLimit(
+                id: "cursor:session",
+                name: "Cursor",
+                remainingPercent: 100,
+                blockedReason: "Sign in with the Cursor app",
+                bucketID: "a-cursor-session"
+            ),
+            at: 0
+        )
+        return copy(snapshot, limits: limits, note: "")
+    }
+
+    private static func copy(
+        _ snapshot: UsageSnapshot,
+        limits: [UsageLimit]? = nil,
+        note: String? = nil,
+        sourceDetail: String? = nil
+    ) -> UsageSnapshot {
         var copy = UsageSnapshot(
             planName: snapshot.planName,
-            limits: snapshot.limits,
+            limits: limits ?? snapshot.limits,
             lastUpdated: snapshot.lastUpdated,
             isSignedIn: snapshot.isSignedIn,
-            note: joinedNotice(snapshot.note, notice),
+            note: note ?? snapshot.note,
             source: snapshot.source,
-            sourceDetail: joinedNotice(snapshot.sourceDetail, notice)
+            sourceDetail: sourceDetail ?? snapshot.sourceDetail
         )
         copy.accountID = snapshot.accountID
         copy.resetCredits = snapshot.resetCredits
@@ -836,6 +898,8 @@ enum CursorPlanParser {
         copy.omittedLimitCount = snapshot.omittedLimitCount
         copy.plan = snapshot.plan
         copy.billingShape = snapshot.billingShape
+        copy.grokPanel = snapshot.grokPanel
+        copy.grokProductShares = snapshot.grokProductShares
         return copy
     }
 
@@ -852,6 +916,8 @@ enum CursorPlanParser {
         )
         snapshot.plan = .cursor
         snapshot.billingShape = cursor.billingShape
+        snapshot.grokPanel = cursor.grokPanel ?? grok.grokPanel
+        snapshot.grokProductShares = grok.grokProductShares
         var credits = cursor.credits
         for credit in grok.credits where !credits.contains(where: { $0.id == credit.id }) {
             credits.append(credit)
@@ -947,12 +1013,64 @@ enum CursorPlanParser {
     private static func grokIncludedLimit(remaining: Int, reset: Date?, weekly: Bool) -> UsageLimit {
         UsageLimit(
             id: "cursor:grok-included",
-            name: "Grok included",
+            name: "Weekly pool",
             remainingPercent: remaining,
             resetDate: reset,
             bucketID: "g-grok",
-            contextNote: weekly ? "Grok sign-in · weekly credits" : "Grok sign-in"
+            contextNote: weekly ? "One shared weekly plan" : "Grok sign-in"
         )
+    }
+
+    private static func normalizedProductKey(_ raw: String) -> String {
+        String(raw.lowercased().unicodeScalars.compactMap { scalar in
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : nil
+        })
+    }
+
+    private static func grokProductName(_ raw: String) -> String? {
+        switch normalizedProductKey(raw) {
+        case "grokbuild", "build":
+            return "Grok Build"
+        case "grokbot", "bot":
+            return "Grok Bot"
+        case "grokchat", "chat":
+            return "Grok Chat"
+        case "grokvoice", "voice":
+            return "Grok Voice"
+        case "grokimagine", "imagine":
+            return "Grok Imagine"
+        case "grokappbuilder", "appbuilder":
+            return "Grok App Builder"
+        case "bugbot":
+            return "Bugbot"
+        case "cursor":
+            return "Cursor"
+        default:
+            return displayLabel(raw)
+        }
+    }
+
+    private static func grokProductNote(_ raw: String) -> String {
+        switch normalizedProductKey(raw) {
+        case "grokbuild", "build":
+            return "Coding CLI. Same weekly plan, not a separate allowance."
+        case "grokbot", "bot":
+            return "Grok app"
+        case "grokchat", "chat":
+            return "grok.com chat"
+        case "grokvoice", "voice":
+            return "Voice"
+        case "grokimagine", "imagine":
+            return "Images"
+        case "grokappbuilder", "appbuilder":
+            return "App builder"
+        case "bugbot":
+            return "Share of this weekly plan"
+        case "cursor":
+            return "Share of this weekly plan, not the Cursor app meter"
+        default:
+            return "Share of this weekly plan"
+        }
     }
 
     private static func grokProductID(_ name: String, existing: [String]) -> String {

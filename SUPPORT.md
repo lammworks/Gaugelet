@@ -44,7 +44,7 @@ Gaugelet displays what the local Codex App Server returns. Missing windows remai
 
 ## Cursor or Grok usage does not appear
 
-Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Open Cursor and sign in, then refresh. Grok credits also need a Grok CLI sign-in.
+Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Grok credits need a Grok CLI sign-in. In Terminal, run `grok login`. That writes `~/.grok/auth.json`. Opening grok.com does not. Gaugelet does not refresh the token. The weekly number is one shared plan; Cursor, Grok Bot, Bugbot, Chat, Voice, and Grok Build are shares of that plan. Grok Build is the `grok` coding CLI.
 
 Check the sign-in without printing secrets:
 

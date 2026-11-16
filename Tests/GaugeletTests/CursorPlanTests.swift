@@ -133,7 +133,7 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(snapshot.planName, "Grok")
         XCTAssertEqual(snapshot.limits.map(\.id), ["cursor:grok-included"])
         XCTAssertEqual(snapshot.limits.first?.remainingPercent, 60)
-        XCTAssertEqual(snapshot.limits.first?.contextNote, "Grok sign-in · weekly credits")
+        XCTAssertEqual(snapshot.limits.first?.contextNote, "One shared weekly plan")
     }
 
     func testGrokCreditsResponseKeepsTheWeeklyPoolAndProductBreakdown() throws {
@@ -163,16 +163,69 @@ final class CursorPlanTests: XCTestCase {
 
         XCTAssertEqual(snapshot.planName, "SuperGrok")
         XCTAssertEqual(snapshot.billingShape, .weeklyPool)
-        XCTAssertEqual(
-            snapshot.limits.map(\.id),
-            ["cursor:grok-included", "cursor:grok-product:grokbuild", "cursor:grok-product:api", "cursor:grok-on-demand"]
-        )
-        XCTAssertEqual(snapshot.limits.map(\.remainingPercent), [54, 59, 95, 75])
+        XCTAssertEqual(snapshot.limits.map(\.id), ["cursor:grok-included", "cursor:grok-on-demand"])
+        XCTAssertEqual(snapshot.limits.map(\.remainingPercent), [54, 75])
+        XCTAssertEqual(snapshot.grokProductShares.map(\.name), ["Grok Build", "API"])
+        XCTAssertEqual(snapshot.grokProductShares.map(\.usedPercent), [41, 5])
         XCTAssertEqual(snapshot.credits.first?.id, "grok:prepaid")
         XCTAssertEqual(snapshot.credits.first?.displayValue, "$18.40")
         XCTAssertEqual(
             snapshot.limits.first?.resetDate,
             FixtureDate.fractional.date(from: "2026-07-14T10:46:52.885620+00:00")
+        )
+    }
+
+    func testSuperPlanProductsAreSharesOfOneWeeklyPool() throws {
+        let body = Data(#"""
+        {"subscriptionTier":"Super","config":{"creditUsagePercent":93,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-11-17T00:00:00Z"},"productUsage":[{"product":"Cursor","usagePercent":43},{"product":"GrokBot","usagePercent":42},{"product":"Bugbot","usagePercent":5},{"product":"GrokChat","usagePercent":2},{"product":"GrokVoice","usagePercent":1}]}}
+        """#.utf8)
+        let snapshot = try CursorPlanParser.parseGrokCredits(body)
+        XCTAssertEqual(snapshot.limits.map(\.id), ["cursor:grok-included"])
+        XCTAssertEqual(snapshot.limits.first?.remainingPercent, 7)
+        XCTAssertEqual(snapshot.grokProductShares.map(\.name), ["Cursor", "Grok Bot", "Bugbot", "Grok Chat", "Grok Voice"])
+        XCTAssertEqual(snapshot.grokProductShares.map(\.usedPercent), [43, 42, 5, 2, 1])
+        XCTAssertEqual(snapshot.grokProductShares.map(\.usedPercent).reduce(0, +), 93)
+        XCTAssertEqual(snapshot.menuBarLimit(pinnedID: "cursor:grok-product:grokbot")?.remainingPercent, 7)
+        XCTAssertFalse(snapshot.grokProductShares.contains { $0.detail.contains("% left") })
+    }
+
+    func testMenuBarShowsEachServiceRemainingAndMarksStale() throws {
+        let chatgpt = UsageSnapshot(
+            planName: "ChatGPT Plus",
+            limits: [UsageLimit(id: "five-hour", name: "5-hour limit", remainingPercent: 90, resetDate: nil)],
+            lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+            isSignedIn: true,
+            note: "",
+            source: .codexAppServer,
+            sourceDetail: "Test"
+        )
+        let grok = try CursorPlanParser.parseGrokCredits(Data(#"""
+        {"config":{"creditUsagePercent":93,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-11-17T00:00:00Z"},"productUsage":[{"product":"GrokBot","usagePercent":42}]}}
+        """#.utf8))
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.title(chatgpt: .live(chatgpt), cursor: .live(grok), cursorEnabled: true, showPercentage: true),
+            "GPT 90% · G 7%"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.title(chatgpt: .live(chatgpt), cursor: .live(grok), cursorEnabled: false, showPercentage: true),
+            "90%"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.title(
+                chatgpt: .stale(snapshot: chatgpt, errorMessage: "offline", failedAt: Date()),
+                cursor: .live(grok),
+                cursorEnabled: true,
+                showPercentage: true
+            ),
+            "GPT ! · G 7%"
+        )
+        XCTAssertFalse(
+            GaugeletMenuBarStatus.title(
+                chatgpt: .stale(snapshot: chatgpt, errorMessage: "offline", failedAt: Date()),
+                cursor: .unavailable(errorMessage: "nope"),
+                cursorEnabled: true,
+                showPercentage: true
+            ).contains("90")
         )
     }
 
@@ -424,8 +477,10 @@ final class CursorPlanTests: XCTestCase {
 
         XCTAssertTrue(snapshot.isSignedIn)
         XCTAssertEqual(snapshot.source, .grokPlan)
-        XCTAssertEqual(snapshot.limits.first?.id, "cursor:grok-included")
-        XCTAssertTrue(snapshot.note.contains("Cursor rejected"))
+        XCTAssertEqual(snapshot.limits.first?.id, "cursor:session")
+        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Sign in with the Cursor app")
+        XCTAssertFalse(snapshot.note.contains("Cursor rejected"))
+        XCTAssertEqual(snapshot.limits.first { $0.id == "cursor:grok-included" }?.remainingPercent, 60)
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL, CursorPlanParser.grokBillingURL])
     }
 

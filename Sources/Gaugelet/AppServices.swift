@@ -54,6 +54,101 @@ enum GaugeletMenuBarPresentation {
     }
 }
 
+enum MenuBarSlot: Equatable {
+    case percent(Int)
+    case marked(String)
+}
+
+struct MenuBarPiece: Equatable {
+    let label: String
+    let slot: MenuBarSlot
+}
+
+enum GaugeletMenuBarStatus {
+    static func title(
+        chatgpt: UsageState,
+        cursor: UsageState,
+        cursorEnabled: Bool,
+        showPercentage: Bool
+    ) -> String {
+        var pieces: [MenuBarPiece] = []
+        if let chat = piece(for: chatgpt, label: "GPT", poolID: nil) {
+            pieces.append(chat)
+        }
+        if cursorEnabled, let grok = piece(for: cursor, label: "G", poolID: "cursor:grok-included") {
+            pieces.append(grok)
+        }
+        let demo = isDemo(chatgpt) || (cursorEnabled && isDemo(cursor))
+        let body = formatted(pieces, showPercentage: showPercentage)
+        if body.isEmpty { return demo ? "D" : "" }
+        return demo ? "D \(body)" : body
+    }
+
+    static func toolTip(chatgpt: UsageState, cursor: UsageState, cursorEnabled: Bool) -> String {
+        let pieces = [
+            piece(for: chatgpt, label: "ChatGPT", poolID: nil),
+            cursorEnabled ? piece(for: cursor, label: "Grok", poolID: "cursor:grok-included") : nil
+        ].compactMap { $0 }
+        guard !pieces.isEmpty else { return "Gaugelet" }
+        let detail = pieces.map { piece in
+            switch piece.slot {
+            case .percent(let value):
+                "\(piece.label) \(value)% left"
+            case .marked(let mark) where mark == "!":
+                "\(piece.label) stale"
+            case .marked:
+                "\(piece.label) unavailable"
+            }
+        }.joined(separator: ". ")
+        return "Gaugelet — \(detail)"
+    }
+
+    private static func formatted(_ pieces: [MenuBarPiece], showPercentage: Bool) -> String {
+        let visible = pieces.filter { piece in
+            switch piece.slot {
+            case .percent: showPercentage
+            case .marked: true
+            }
+        }
+        guard !visible.isEmpty else { return "" }
+        if visible.count == 1, visible[0].label == "GPT", case .percent(let value) = visible[0].slot {
+            return "\(value)%"
+        }
+        return visible.map { piece in
+            switch piece.slot {
+            case .percent(let value):
+                "\(piece.label) \(value)%"
+            case .marked(let mark):
+                "\(piece.label) \(mark)"
+            }
+        }.joined(separator: " · ")
+    }
+
+    private static func piece(for state: UsageState, label: String, poolID: String?) -> MenuBarPiece? {
+        switch state {
+        case .loading, .unavailable:
+            return poolID == nil ? MenuBarPiece(label: label, slot: .marked("—")) : MenuBarPiece(label: label, slot: .marked("—"))
+        case .stale:
+            return MenuBarPiece(label: label, slot: .marked("!"))
+        case .live(let snapshot), .demo(let snapshot):
+            guard snapshot.isSignedIn else {
+                return MenuBarPiece(label: label, slot: .marked("—"))
+            }
+            let limit = poolID.flatMap { id in snapshot.limits.first { $0.id == id } }
+                ?? (poolID == nil ? snapshot.menuBarLimit(pinnedID: "") : nil)
+            guard let limit, limit.blockedReason == nil else {
+                return poolID == nil ? nil : MenuBarPiece(label: label, slot: .marked("—"))
+            }
+            return MenuBarPiece(label: label, slot: .percent(limit.clampedRemainingPercent))
+        }
+    }
+
+    private static func isDemo(_ state: UsageState) -> Bool {
+        if case .demo = state { return true }
+        return false
+    }
+}
+
 enum GaugeletLink: String, CaseIterable, Sendable {
     case chatGPT = "https://chatgpt.com"
     case usage = "https://chatgpt.com/codex/settings/usage"

@@ -7,8 +7,8 @@ All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Ver
 - Optional Grok and Cursor plan usage in the menu-bar popover. ChatGPT stays on the Codex reading. The Cursor tab stays off until you enable it.
 - Grok credits are read from the Grok CLI sign-in (`key` under `https://auth.x.ai` in `~/.grok/auth.json` or `$GROK_HOME/auth.json`) and shown as their own rows beside the Cursor plan. An expired or unreadable sign-in names the file and the JSON keys present, without values.
 - A Cursor request failure keeps the last Cursor reading. It is not replaced by Grok or described as a rejected sign-in. Allowance alerts stay on the Cursor sign-in when the Grok reading is missing or fails.
-- The X Subscription is shown as one weekly pool shared by Grok and Cursor. Older Cursor plans keep the distinct included meters that account returns.
-- The menu bar still shows one pinned percent. A Cursor row can be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
+- The Grok weekly number is one shared plan. Cursor, Grok Bot, Bugbot, Chat, Voice, and Grok Build are shares of that plan, shown as percent of the plan used. Grok Build is the `grok` coding CLI and is not a second allowance. Older Cursor app plans keep the distinct included meters that account returns.
+- The menu bar shows ChatGPT and Grok remaining together when both are available. A stale or unavailable service is marked instead of keeping its last percent looking live. A Cursor app row can still be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
 - Privacy, security, and data-source notes name the read-only token key and the Cursor and xAI usage requests.
 - Allowance alerts compare Cursor and Grok readings only when both carry the same in-memory session identifier. Reset times outside a supported range stay unavailable.
 

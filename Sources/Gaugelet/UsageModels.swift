@@ -52,6 +52,20 @@ enum UsageBillingShape: Equatable, Sendable {
     case legacyCycle
 }
 
+enum GrokPanel: Equatable, Sendable {
+    case login(reason: String)
+    case status(String)
+
+    static let command = "grok login"
+}
+
+struct GrokProductShare: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let usedPercent: Int
+    let detail: String
+}
+
 enum UsageSource: Equatable, Sendable {
     case codexAppServer
     case cursorPlan
@@ -275,6 +289,8 @@ struct UsageSnapshot: Equatable, Sendable {
     var omittedLimitCount: Int = 0
     var plan: UsagePlan = .chatgpt
     var billingShape: UsageBillingShape = .chatGPT
+    var grokPanel: GrokPanel? = nil
+    var grokProductShares: [GrokProductShare] = []
 
     // Ordering never depends on consumption or reset timestamps.
     var orderedLimits: [UsageLimit] {
@@ -288,8 +304,13 @@ struct UsageSnapshot: Equatable, Sendable {
     }
 
     func menuBarLimit(pinnedID: String) -> UsageLimit? {
-        if !pinnedID.isEmpty { return limits.first { $0.id == pinnedID } }
-        return orderedLimits.first
+        let allowances = limits.filter { !$0.id.contains("grok-product") }
+        if pinnedID.contains("grok-product") {
+            return allowances.first { $0.id == "cursor:grok-included" }
+        }
+        if !pinnedID.isEmpty { return allowances.first { $0.id == pinnedID } }
+        return allowances.first { $0.id == "cursor:grok-included" }
+            ?? orderedLimits.first { !$0.id.contains("grok-product") }
     }
 
     var closestLimit: UsageLimit? {
