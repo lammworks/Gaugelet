@@ -83,6 +83,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           include-hidden-files: false
+          # The name is the head SHA, so a re-run of this job would otherwise
+          # fail with 409 after the shipping build. Replace the previous file.
+          overwrite: true
 
   website-check:
     runs-on: ubuntu-latest
