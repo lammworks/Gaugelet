@@ -142,7 +142,9 @@ enum GaugeletMenuBarStatus {
                 return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "signed out"))
             }
             guard let limit = poolLimit(in: snapshot, poolID: poolID) else {
-                return poolID == nil ? nil : MenuBarPiece(label: label, slot: .marked(mark: "—", status: "unavailable"))
+                if poolID == nil { return nil }
+                let status = grokNeedsSignIn(snapshot, poolID: poolID) ? "signed out" : "unavailable"
+                return MenuBarPiece(label: label, slot: .marked(mark: "—", status: status))
             }
             if limit.blockedReason != nil {
                 return MenuBarPiece(label: label, slot: .marked(mark: "blocked", status: "blocked"))
@@ -162,6 +164,12 @@ enum GaugeletMenuBarStatus {
             return nil
         }
         return snapshot.menuBarLimit(pinnedID: "")
+    }
+
+    private static func grokNeedsSignIn(_ snapshot: UsageSnapshot, poolID: String?) -> Bool {
+        guard poolID == "cursor:grok-included" else { return false }
+        if case .login = snapshot.grokPanel { return true }
+        return false
     }
 
     private static func isDemo(_ state: UsageState) -> Bool {

@@ -287,6 +287,48 @@ final class CursorPlanTests: XCTestCase {
         )
     }
 
+    func testCursorSignInWithoutGrokIsSignedOutRatherThanUnavailable() {
+        var cursor = UsageSnapshot(
+            planName: "X Subscription",
+            limits: [
+                UsageLimit(
+                    id: "cursor:included",
+                    name: "Included usage",
+                    remainingPercent: 72,
+                    resetDate: nil
+                )
+            ],
+            lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+            isSignedIn: true,
+            note: "",
+            source: .cursorPlan,
+            sourceDetail: "Test"
+        )
+        cursor.plan = .cursor
+        cursor.grokPanel = .login(
+            reason: "No Grok sign-in was found in ~/.grok/auth.json.",
+            pathLabel: "~/.grok/auth.json"
+        )
+        let chatgpt = UsageSnapshot(
+            planName: "ChatGPT Plus",
+            limits: [UsageLimit(id: "five-hour", name: "5-hour limit", remainingPercent: 90, resetDate: nil)],
+            lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+            isSignedIn: true,
+            note: "",
+            source: .codexAppServer,
+            sourceDetail: "Test"
+        )
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(chatgpt: .live(chatgpt), cursor: .live(cursor), cursorEnabled: true),
+            "Gaugelet — ChatGPT 90% left. Grok signed out"
+        )
+        cursor.grokPanel = .status("Grok usage request failed (HTTP 500).")
+        XCTAssertEqual(
+            GaugeletMenuBarStatus.toolTip(chatgpt: .live(chatgpt), cursor: .live(cursor), cursorEnabled: true),
+            "Gaugelet — ChatGPT 90% left. Grok unavailable"
+        )
+    }
+
     func testDemoMenuBarShowsTheSharedWeeklyPool() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let title = GaugeletMenuBarStatus.title(
