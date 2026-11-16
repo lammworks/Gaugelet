@@ -869,6 +869,7 @@ enum CursorPlanParser {
                 id: "cursor:session",
                 name: "Cursor",
                 remainingPercent: 100,
+                resetDate: nil,
                 blockedReason: "Sign in with the Cursor app",
                 bucketID: "a-cursor-session"
             ),
