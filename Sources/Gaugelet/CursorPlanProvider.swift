@@ -77,7 +77,9 @@ protocol CursorPlanTransport: Sendable {
 struct CursorCredentialLocator: Sendable {
     var cursorDatabaseURL: URL
     var grokAuthURL: URL
-    var cursorKeychainPassword: @Sendable () -> CursorKeychainResult = { CursorKeychain.safeStoragePassword() }
+    var cursorKeychainPassword: @Sendable (String) -> CursorKeychainResult = { appName in
+        CursorKeychain.safeStoragePassword(forAppName: appName)
+    }
 
     static func live() -> CursorCredentialLocator {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -113,7 +115,11 @@ struct CursorCredentialLocator: Sendable {
             sawDatabase = true
             let stored = try storedAccessToken(in: database)
             guard let stored else { continue }
-            return resolveStoredToken(stored, source: sourceLabel(for: database))
+            return resolveStoredToken(
+                stored,
+                source: sourceLabel(for: database),
+                appName: appName(for: database)
+            )
         }
         if sawDatabase {
             return .missing(hint: "No cursorAuth/accessToken in the Cursor desktop state.vscdb. Open the Cursor desktop app and sign in.")
@@ -134,14 +140,17 @@ struct CursorCredentialLocator: Sendable {
         return [primary] + siblings.filter { $0.path != primary.path }
     }
 
-    private func sourceLabel(for database: URL) -> String {
+    private func appName(for database: URL) -> String {
         let folder = database
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .lastPathComponent
-        let app = folder.localizedCaseInsensitiveContains("cursor") ? folder : "Cursor"
-        return "\(app) desktop state.vscdb cursorAuth/accessToken"
+        return folder.localizedCaseInsensitiveContains("cursor") ? folder : "Cursor"
+    }
+
+    private func sourceLabel(for database: URL) -> String {
+        "\(appName(for: database)) desktop state.vscdb cursorAuth/accessToken"
     }
 
     private func storedAccessToken(in database: URL) throws -> String? {
@@ -151,41 +160,43 @@ struct CursorCredentialLocator: Sendable {
         return try token(from: database, sql: fallback)
     }
 
-    private func resolveStoredToken(_ stored: String, source: String) -> CursorTokenResolution {
+    private func resolveStoredToken(_ stored: String, source: String, appName: String) -> CursorTokenResolution {
         guard CursorSafeStorage.isSealed(stored) else {
             guard CursorPlanParser.acceptedToken(stored) != nil else {
                 return .blocked(
                     title: "Token unreadable",
-                    hint: "Cursor desktop stored cursorAuth/accessToken, but it was not a usable sign-in. Open the Cursor desktop app."
+                    hint: "\(appName) desktop stored cursorAuth/accessToken, but it was not a usable sign-in. Open the Cursor desktop app."
                 )
             }
             return .ready(token: stored, source: source)
         }
-        switch cursorKeychainPassword() {
+        let service = "\(appName) Safe Storage"
+        let account = "\(appName) Key"
+        switch cursorKeychainPassword(appName) {
         case .password(let password) where !password.isEmpty:
             guard let token = CursorSafeStorage.unseal(stored, password: password),
                   CursorPlanParser.acceptedToken(token) != nil
             else {
                 return .blocked(
                     title: "Token sealed",
-                    hint: "Cursor desktop stored a sealed sign-in in state.vscdb, but it could not be unsealed with the Cursor Safe Storage key. Open the Cursor desktop app."
+                    hint: "\(appName) desktop stored a sealed sign-in in state.vscdb, but it could not be unsealed with the \(service) key. Open the Cursor desktop app."
                 )
             }
             return .ready(token: token, source: "\(source), unsealed")
         case .password:
             return .blocked(
                 title: "Token sealed",
-                hint: "Cursor desktop stored a sealed sign-in in state.vscdb. The Keychain item “Cursor Safe Storage” (account “Cursor Key”) was empty. Open the Cursor desktop app."
+                hint: "\(appName) desktop stored a sealed sign-in in state.vscdb. The Keychain item “\(service)” (account “\(account)”) was empty. Open the Cursor desktop app."
             )
         case .missing:
             return .blocked(
                 title: "Token sealed",
-                hint: "Cursor desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). The Keychain item “Cursor Safe Storage” (account “Cursor Key”) was not found. Open the Cursor desktop app."
+                hint: "\(appName) desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). The Keychain item “\(service)” (account “\(account)”) was not found. Open the Cursor desktop app."
             )
         case .denied:
             return .blocked(
                 title: "Token sealed",
-                hint: "Cursor desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). macOS did not allow Gaugelet to read the Keychain item “Cursor Safe Storage” (account “Cursor Key”). Allow Gaugelet to read that item, then refresh."
+                hint: "\(appName) desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). macOS did not allow Gaugelet to read the Keychain item “\(service)” (account “\(account)”). Allow Gaugelet to read that item, then refresh."
             )
         }
     }
@@ -295,10 +306,10 @@ enum CursorKeychain {
     private static let promptLock = NSLock()
     private static var didPrompt = false
 
-    static func safeStoragePassword() -> CursorKeychainResult {
-        let quiet = lookup(prompt: false)
+    static func safeStoragePassword(forAppName appName: String) -> CursorKeychainResult {
+        let quiet = lookup(appName: appName, prompt: false)
         if case .denied = quiet, takePrompt() {
-            return lookup(prompt: true)
+            return lookup(appName: appName, prompt: true)
         }
         return quiet
     }
@@ -311,10 +322,11 @@ enum CursorKeychain {
         return true
     }
 
-    private static func lookup(prompt: Bool) -> CursorKeychainResult {
+    private static func lookup(appName: String, prompt: Bool) -> CursorKeychainResult {
+        let service = "\(appName) Safe Storage"
         var sawDenial = false
-        for account in ["Cursor Key", "Cursor"] {
-            switch genericPassword(service: "Cursor Safe Storage", account: account, prompt: prompt) {
+        for account in ["\(appName) Key", appName] {
+            switch genericPassword(service: service, account: account, prompt: prompt) {
             case .password(let password):
                 return .password(password)
             case .missing:
@@ -329,7 +341,7 @@ enum CursorKeychain {
     private static func genericPassword(service: String, account: String, prompt: Bool) -> CursorKeychainResult {
         let context = LAContext()
         context.interactionNotAllowed = !prompt
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
@@ -337,6 +349,12 @@ enum CursorKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecUseAuthenticationContext as String: context
         ]
+        if !prompt {
+            // interactionNotAllowed suppresses LocalAuthentication UI only.
+            // The Safe Storage item still shows the login-keychain Allow dialog
+            // unless this flag fails the read instead.
+            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {

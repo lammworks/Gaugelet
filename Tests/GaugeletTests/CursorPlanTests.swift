@@ -779,7 +779,7 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        locator.cursorKeychainPassword = { .password(Data("test-cursor-key".utf8)) }
+        locator.cursorKeychainPassword = { _ in .password(Data("test-cursor-key".utf8)) }
         let provider = CursorPlanProvider(
             locator: locator,
             transport: transport,
@@ -801,7 +801,7 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        locator.cursorKeychainPassword = { .missing }
+        locator.cursorKeychainPassword = { _ in .missing }
 
         guard case .blocked(let title, let hint) = try locator.cursorResolution() else {
             XCTFail("Expected a sealed token to stay blocked")
@@ -816,7 +816,7 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertFalse(hint.contains("test-cursor-key"))
         XCTAssertNil(try locator.cursorAccessToken())
 
-        locator.cursorKeychainPassword = { .denied }
+        locator.cursorKeychainPassword = { _ in .denied }
         guard case .blocked(let deniedTitle, let deniedHint) = try locator.cursorResolution() else {
             XCTFail("Expected a denied Keychain read to stay blocked")
             return
@@ -825,6 +825,58 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertTrue(deniedHint.contains("did not allow Gaugelet"))
         XCTAssertTrue(deniedHint.contains("Cursor Safe Storage"))
         XCTAssertFalse(deniedHint.contains("djEw"))
+    }
+
+    func testSealedTokenUsesTheKeychainItemNamedForThatCursorApp() throws {
+        let wrapped = "cursor-safe-storage:v1:djEwwi3rPCzgH6FHW1NlJGQPds3FWw2mAeVzkazOUTQ/MiI="
+        let nightly = try cursorDatabase(appFolder: "Cursor Nightly", token: wrapped)
+        var nightlyLocator = CursorCredentialLocator(
+            cursorDatabaseURL: nightly,
+            grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
+        )
+        nightlyLocator.cursorKeychainPassword = { appName in
+            guard appName == "Cursor Nightly" else { return .missing }
+            return .password(Data("test-cursor-key".utf8))
+        }
+
+        guard case .ready(let token, let source) = try nightlyLocator.cursorResolution() else {
+            XCTFail("Expected the Nightly Safe Storage password to unseal the token")
+            return
+        }
+        XCTAssertEqual(token, "cursor-session-token")
+        XCTAssertTrue(source.contains("Cursor Nightly"))
+        XCTAssertTrue(source.contains("unsealed"))
+        XCTAssertFalse(source.contains(wrapped))
+
+        nightlyLocator.cursorKeychainPassword = { _ in .missing }
+        guard case .blocked(let title, let hint) = try nightlyLocator.cursorResolution() else {
+            XCTFail("Expected a missing Nightly item to stay sealed")
+            return
+        }
+        XCTAssertEqual(title, "Token sealed")
+        XCTAssertTrue(hint.contains("Cursor Nightly Safe Storage"))
+        XCTAssertTrue(hint.contains("Cursor Nightly Key"))
+        XCTAssertFalse(hint.contains("“Cursor Safe Storage”"))
+        XCTAssertFalse(hint.contains("djEw"))
+
+        let insiders = try cursorDatabase(appFolder: "Cursor Insiders", token: wrapped)
+        var insidersLocator = CursorCredentialLocator(
+            cursorDatabaseURL: insiders,
+            grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
+        )
+        insidersLocator.cursorKeychainPassword = { appName in
+            guard appName == "Cursor Insiders" else { return .missing }
+            return .denied
+        }
+        guard case .blocked(let insidersTitle, let insidersHint) = try insidersLocator.cursorResolution() else {
+            XCTFail("Expected a denied Insiders item to stay sealed")
+            return
+        }
+        XCTAssertEqual(insidersTitle, "Token sealed")
+        XCTAssertTrue(insidersHint.contains("Cursor Insiders Safe Storage"))
+        XCTAssertTrue(insidersHint.contains("Cursor Insiders Key"))
+        XCTAssertTrue(insidersHint.contains("did not allow Gaugelet"))
+        XCTAssertFalse(insidersHint.contains("“Cursor Safe Storage”"))
     }
 
     func testCursorTimeoutStaysOnItsOwnRowWhenGrokLoads() async throws {
@@ -922,8 +974,17 @@ final class CursorPlanTests: XCTestCase {
         return try await provider.fetchSnapshot()
     }
 
-    private func makeCursorDatabase(token: String) throws -> URL {
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+    private func cursorDatabase(appFolder: String, token: String) throws -> URL {
+        let storage = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(appFolder, isDirectory: true)
+            .appendingPathComponent("User", isDirectory: true)
+            .appendingPathComponent("globalStorage", isDirectory: true)
+        return try makeCursorDatabase(token: token, directory: storage)
+    }
+
+    private func makeCursorDatabase(token: String, directory: URL? = nil) throws -> URL {
+        let directory = directory ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let database = directory.appendingPathComponent("state.vscdb")
         let process = Process()
