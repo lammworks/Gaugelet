@@ -105,7 +105,10 @@ final class UsageStoreTests: XCTestCase {
         store.refresh()
         await provider.waitForRequestCount(2)
         await provider.resolve(1, with: .failure("temporary failure"))
-        await waitForStoreUpdate()
+        await waitForStoreUpdate {
+            if case .stale = store.state { return true }
+            return false
+        }
 
         guard case .stale(let snapshot, let message, _) = store.state else {
             return XCTFail("Expected stale state, got \(store.state)")
@@ -409,9 +412,12 @@ final class UsageStoreTests: XCTestCase {
     }
 
     @MainActor
-    private func waitForStoreUpdate() async {
-        for _ in 0..<20 {
+    private func waitForStoreUpdate(until ready: (@MainActor () -> Bool)? = nil) async {
+        for _ in 0..<100 {
+            let done = await MainActor.run { ready?() ?? false }
+            if done { return }
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 }

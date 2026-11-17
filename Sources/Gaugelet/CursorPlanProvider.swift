@@ -1,6 +1,7 @@
 import CommonCrypto
 import CryptoKit
 import Foundation
+import LocalAuthentication
 import Security
 
 enum CursorPlanError: LocalizedError, Equatable, Sendable {
@@ -326,16 +327,16 @@ enum CursorKeychain {
     }
 
     private static func genericPassword(service: String, account: String, prompt: Bool) -> CursorKeychainResult {
-        var query: [String: Any] = [
+        let context = LAContext()
+        context.interactionNotAllowed = !prompt
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
         ]
-        if !prompt {
-            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
