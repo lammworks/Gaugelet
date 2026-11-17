@@ -61,7 +61,9 @@ Check the sign-in without printing secrets:
        if isinstance(value, dict):
            print(name, "fields:", ", ".join(sorted(value)))'
    ```
-4. Expect a top-level key starting with `https://auth.x.ai::` and, inside it, `key`, `expires_at`, `auth_mode`, and `user_id`. Do not paste the values. An `xai::api_key` entry is not enough. If `expires_at` is in the past, run `grok login` again. Gaugelet does not refresh tokens and does not read the keychain.
+4. Expect a top-level key starting with `https://auth.x.ai::` and, inside it, `key`, `expires_at`, `auth_mode`, and `user_id`. Do not paste the values. An `xai::api_key` entry is not enough. If `expires_at` is in the past, run `grok login` again. Gaugelet does not refresh tokens and does not read the keychain for Grok.
+
+The Cursor row is separate from the Grok weekly pool. “Not signed in” means no `cursorAuth/accessToken` was in the Cursor desktop `state.vscdb`. “Token sealed” means the value is sealed and the Keychain item `Cursor Safe Storage` / `Cursor Key` could not be read; open the Cursor desktop app so that item exists. “Request failed” means a token was read and the usage request returned an HTTP status, which the row tooltip names. “Timed out” means that request did not answer within 12 seconds. The tooltip names the source it tried and never includes the token.
 
 A rejected sign-in stays on screen with the path and those key names. A Cursor reading and a Grok reading are separate rows. Neither replaces a good ChatGPT reading.
 

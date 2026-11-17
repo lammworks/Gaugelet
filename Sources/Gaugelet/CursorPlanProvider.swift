@@ -1,5 +1,7 @@
+import CommonCrypto
 import CryptoKit
 import Foundation
+import Security
 
 enum CursorPlanError: LocalizedError, Equatable, Sendable {
     case notSignedIn
@@ -10,6 +12,7 @@ enum CursorPlanError: LocalizedError, Equatable, Sendable {
     case responseTooLarge
     case sessionUnreadable
     case grokResponse(String)
+    case requestFailed(Int)
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +32,8 @@ enum CursorPlanError: LocalizedError, Equatable, Sendable {
             "Cursor’s saved sign-in could not be read. Open Cursor and retry."
         case .grokResponse(let message):
             message
+        case .requestFailed(let status):
+            "The Cursor usage request failed (HTTP \(status))."
         }
     }
 }
@@ -37,6 +42,18 @@ enum GrokCredential: Equatable, Sendable {
     case missing
     case token(String, userID: String?)
     case unusable(message: String)
+}
+
+enum CursorTokenResolution: Equatable, Sendable {
+    case missing(hint: String)
+    case ready(token: String, source: String)
+    case blocked(title: String, hint: String)
+}
+
+enum CursorKeychainResult: Sendable {
+    case password(Data)
+    case missing
+    case denied
 }
 
 enum CursorPlanRead: Equatable, Sendable {
@@ -59,6 +76,7 @@ protocol CursorPlanTransport: Sendable {
 struct CursorCredentialLocator: Sendable {
     var cursorDatabaseURL: URL
     var grokAuthURL: URL
+    var cursorKeychainPassword: @Sendable () -> CursorKeychainResult = { CursorKeychain.safeStoragePassword() }
 
     static func live() -> CursorCredentialLocator {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -78,11 +96,97 @@ struct CursorCredentialLocator: Sendable {
     }
 
     func cursorAccessToken() throws -> String? {
-        guard FileManager.default.fileExists(atPath: cursorDatabaseURL.path) else { return nil }
+        switch try cursorResolution() {
+        case .ready(let token, _):
+            return token
+        case .missing, .blocked:
+            return nil
+        }
+    }
+
+    func cursorResolution() throws -> CursorTokenResolution {
+        let databases = cursorDatabaseCandidates()
+        var sawDatabase = false
+        for database in databases {
+            guard FileManager.default.fileExists(atPath: database.path) else { continue }
+            sawDatabase = true
+            let stored = try storedAccessToken(in: database)
+            guard let stored else { continue }
+            return resolveStoredToken(stored, source: sourceLabel(for: database))
+        }
+        if sawDatabase {
+            return .missing(hint: "No cursorAuth/accessToken in the Cursor desktop state.vscdb. Open the Cursor desktop app and sign in.")
+        }
+        return .missing(hint: "No Cursor desktop database at ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb. Open the Cursor desktop app and sign in.")
+    }
+
+    private func cursorDatabaseCandidates() -> [URL] {
+        let primary = cursorDatabaseURL
+        let parent = primary.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let siblings = ["Cursor Nightly", "Cursor Insiders"].map {
+            parent.deletingLastPathComponent()
+                .appendingPathComponent($0, isDirectory: true)
+                .appendingPathComponent("User", isDirectory: true)
+                .appendingPathComponent("globalStorage", isDirectory: true)
+                .appendingPathComponent("state.vscdb")
+        }
+        return [primary] + siblings.filter { $0.path != primary.path }
+    }
+
+    private func sourceLabel(for database: URL) -> String {
+        let folder = database
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .lastPathComponent
+        let app = folder.localizedCaseInsensitiveContains("cursor") ? folder : "Cursor"
+        return "\(app) desktop state.vscdb cursorAuth/accessToken"
+    }
+
+    private func storedAccessToken(in database: URL) throws -> String? {
         let query = "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1;"
         let fallback = "SELECT value FROM cursorDiskKV WHERE key = 'cursorAuth/accessToken' LIMIT 1;"
-        if let token = try token(from: cursorDatabaseURL, sql: query) { return token }
-        return try token(from: cursorDatabaseURL, sql: fallback)
+        if let token = try token(from: database, sql: query) { return token }
+        return try token(from: database, sql: fallback)
+    }
+
+    private func resolveStoredToken(_ stored: String, source: String) -> CursorTokenResolution {
+        guard CursorSafeStorage.isSealed(stored) else {
+            guard CursorPlanParser.acceptedToken(stored) != nil else {
+                return .blocked(
+                    title: "Token unreadable",
+                    hint: "Cursor desktop stored cursorAuth/accessToken, but it was not a usable sign-in. Open the Cursor desktop app."
+                )
+            }
+            return .ready(token: stored, source: source)
+        }
+        switch cursorKeychainPassword() {
+        case .password(let password) where !password.isEmpty:
+            guard let token = CursorSafeStorage.unseal(stored, password: password),
+                  CursorPlanParser.acceptedToken(token) != nil
+            else {
+                return .blocked(
+                    title: "Token sealed",
+                    hint: "Cursor desktop stored a sealed sign-in in state.vscdb, but it could not be unsealed with the Cursor Safe Storage key. Open the Cursor desktop app."
+                )
+            }
+            return .ready(token: token, source: "\(source), unsealed")
+        case .password:
+            return .blocked(
+                title: "Token sealed",
+                hint: "Cursor desktop stored a sealed sign-in in state.vscdb. The Keychain item “Cursor Safe Storage” (account “Cursor Key”) was empty. Open the Cursor desktop app."
+            )
+        case .missing:
+            return .blocked(
+                title: "Token sealed",
+                hint: "Cursor desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). The Keychain item “Cursor Safe Storage” (account “Cursor Key”) was not found. Open the Cursor desktop app."
+            )
+        case .denied:
+            return .blocked(
+                title: "Token sealed",
+                hint: "Cursor desktop stored a sealed sign-in in state.vscdb (cursor-safe-storage:v1). macOS did not allow Gaugelet to read the Keychain item “Cursor Safe Storage” (account “Cursor Key”). Allow Gaugelet to read that item, then refresh."
+            )
+        }
     }
 
     func grokAccessToken(now: Date = Date()) throws -> String? {
@@ -166,7 +270,7 @@ struct CursorCredentialLocator: Sendable {
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard data.count <= 16_384 else { throw CursorPlanError.sessionUnreadable }
+        guard data.count <= 65_536 else { throw CursorPlanError.sessionUnreadable }
         let raw = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if process.terminationStatus != 0 {
@@ -183,6 +287,143 @@ struct CursorCredentialLocator: Sendable {
     static func sqliteURI(for url: URL) -> String {
         let path = url.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? url.path
         return "file://\(path)?mode=ro"
+    }
+}
+
+enum CursorKeychain {
+    private static let promptLock = NSLock()
+    private static var didPrompt = false
+
+    static func safeStoragePassword() -> CursorKeychainResult {
+        let quiet = lookup(prompt: false)
+        if case .denied = quiet, takePrompt() {
+            return lookup(prompt: true)
+        }
+        return quiet
+    }
+
+    private static func takePrompt() -> Bool {
+        promptLock.lock()
+        defer { promptLock.unlock() }
+        if didPrompt { return false }
+        didPrompt = true
+        return true
+    }
+
+    private static func lookup(prompt: Bool) -> CursorKeychainResult {
+        var sawDenial = false
+        for account in ["Cursor Key", "Cursor"] {
+            switch genericPassword(service: "Cursor Safe Storage", account: account, prompt: prompt) {
+            case .password(let password):
+                return .password(password)
+            case .missing:
+                continue
+            case .denied:
+                sawDenial = true
+            }
+        }
+        return sawDenial ? .denied : .missing
+    }
+
+    private static func genericPassword(service: String, account: String, prompt: Bool) -> CursorKeychainResult {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        if !prompt {
+            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        }
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data, !data.isEmpty else { return .missing }
+            return .password(data)
+        case errSecItemNotFound:
+            return .missing
+        case errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled:
+            return .denied
+        default:
+            return .denied
+        }
+    }
+}
+
+enum CursorSafeStorage {
+    static let marker = "cursor-safe-storage:v1:"
+
+    static func isSealed(_ value: String) -> Bool {
+        value.hasPrefix(marker)
+    }
+
+    static func unseal(_ stored: String, password: Data) -> String? {
+        guard isSealed(stored) else { return nil }
+        let encoded = String(stored.dropFirst(marker.count))
+        guard let blob = Data(base64Encoded: encoded),
+              blob.starts(with: Data("v10".utf8)),
+              blob.count > 3 + 16
+        else { return nil }
+        let ciphertext = Data(blob.dropFirst(3))
+        guard let key = derivedKey(password: password) else { return nil }
+        let iv = Data(repeating: 0x20, count: Int(kCCBlockSizeAES128))
+        guard let plain = decryptAES128CBC(ciphertext, key: key, iv: iv),
+              let text = String(data: plain, encoding: .utf8)
+        else { return nil }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func derivedKey(password: Data) -> Data? {
+        let salt = Data("saltysalt".utf8)
+        var key = Data(count: Int(kCCKeySizeAES128))
+        let status = key.withUnsafeMutableBytes { keyBytes in
+            password.withUnsafeBytes { passwordBytes in
+                salt.withUnsafeBytes { saltBytes in
+                    CCKeyDerivationPBKDF(
+                        CCPBKDFAlgorithm(kCCPBKDF2),
+                        passwordBytes.bindMemory(to: Int8.self).baseAddress,
+                        password.count,
+                        saltBytes.bindMemory(to: UInt8.self).baseAddress,
+                        salt.count,
+                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                        UInt32(1003),
+                        keyBytes.bindMemory(to: UInt8.self).baseAddress,
+                        16
+                    )
+                }
+            }
+        }
+        return status == kCCSuccess ? key : nil
+    }
+
+    private static func decryptAES128CBC(_ ciphertext: Data, key: Data, iv: Data) -> Data? {
+        var output = Data(count: ciphertext.count + Int(kCCBlockSizeAES128))
+        var written = 0
+        let status = output.withUnsafeMutableBytes { outputBytes in
+            ciphertext.withUnsafeBytes { cipherBytes in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(
+                            CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyBytes.baseAddress,
+                            kCCKeySizeAES128,
+                            ivBytes.baseAddress,
+                            cipherBytes.baseAddress,
+                            ciphertext.count,
+                            outputBytes.baseAddress,
+                            outputBytes.count,
+                            &written
+                        )
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess, written > 0 else { return nil }
+        return output.prefix(written)
     }
 }
 
@@ -251,9 +492,25 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
     func fetchSnapshot() async throws -> UsageSnapshot {
         let currentTime = now()
         let locator = locator
-        let cursorToken = try await Task.detached {
-            try locator.cursorAccessToken()
+        let cursorResolution = try await Task.detached {
+            try locator.cursorResolution()
         }.value
+        let cursorToken: String?
+        let cursorSource: String
+        var cursorProblem: (title: String, hint: String)?
+        switch cursorResolution {
+        case .ready(let token, let source):
+            cursorToken = token
+            cursorSource = source
+        case .missing(let hint):
+            cursorToken = nil
+            cursorSource = ""
+            cursorProblem = ("Not signed in", hint)
+        case .blocked(let title, let hint):
+            cursorToken = nil
+            cursorSource = ""
+            cursorProblem = (title, hint)
+        }
         let grok = try await Task.detached {
             try locator.grokCredential(now: currentTime)
         }.value
@@ -262,11 +519,32 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         let cursorFailure: Error?
         if let cursorToken {
             do {
-                cursorSnapshot = try await fetchCursor(token: cursorToken, now: currentTime)
-                cursorFailure = nil
+                let fetched = try await fetchCursor(token: cursorToken, now: currentTime)
+                if fetched.snapshot.isSignedIn {
+                    cursorSnapshot = fetched.snapshot
+                    cursorFailure = nil
+                } else {
+                    cursorSnapshot = nil
+                    cursorFailure = nil
+                    cursorProblem = (
+                        "Request failed",
+                        "Cursor desktop token was read from \(cursorSource). The usage request failed (HTTP \(fetched.statusCode)). Open the Cursor desktop app if this continues."
+                    )
+                }
+            } catch let error as CursorPlanError where error == .timedOut {
+                cursorSnapshot = nil
+                cursorFailure = error
+                cursorProblem = (
+                    "Timed out",
+                    "Cursor desktop token was read from \(cursorSource). The usage request timed out after 12 seconds."
+                )
             } catch {
                 cursorSnapshot = nil
                 cursorFailure = error
+                cursorProblem = (
+                    "Request failed",
+                    "Cursor desktop token was read from \(cursorSource). \(error.localizedDescription) Open the Cursor desktop app if this continues."
+                )
             }
         } else {
             cursorSnapshot = nil
@@ -282,10 +560,19 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             )
         }
 
-        // A timeout or unsupported Cursor payload must stay a failure so the
-        // last good Cursor reading can remain stale. Only an explicit sign-out
-        // falls through to the Grok sign-in.
+        // A timeout or unsupported payload stays a thrown failure when Grok
+        // cannot stand in, so the last good reading can remain stale.
         if let cursorFailure {
+            if case .token(let token, let userID) = grok,
+               let cursorProblem,
+               let grokSnapshot = try? await fetchGrok(token: token, userID: userID, now: currentTime),
+               grokSnapshot.isSignedIn
+            {
+                return identified(
+                    CursorPlanParser.withCursorStatus(grokSnapshot, title: cursorProblem.title, hint: cursorProblem.hint),
+                    tokens: [token]
+                )
+            }
             throw cursorFailure
         }
 
@@ -293,9 +580,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
             do {
                 let grokSnapshot = try await fetchGrok(token: token, userID: userID, now: currentTime)
                 if grokSnapshot.isSignedIn {
-                    let reading = cursorToken == nil
-                        ? grokSnapshot
-                        : CursorPlanParser.withCursorSignInRow(grokSnapshot)
+                    let reading = cursorProblem.map {
+                        CursorPlanParser.withCursorStatus(grokSnapshot, title: $0.title, hint: $0.hint)
+                    } ?? grokSnapshot
                     return identified(reading, tokens: [token])
                 }
                 if let cursorSnapshot {
@@ -319,6 +606,21 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
 
         if let cursorSnapshot {
             return CursorPlanParser.withGrokPanel(cursorSnapshot, grokLoginPanel(grok))
+        }
+
+        if let cursorProblem, cursorProblem.title != "Not signed in" {
+            return CursorPlanParser.withCursorStatus(
+                CursorPlanParser.withGrokPanel(
+                    CursorPlanParser.signedOutSnapshot(
+                        now: currentTime,
+                        source: .cursorPlan,
+                        detail: cursorProblem.hint
+                    ),
+                    grokLoginPanel(grok)
+                ),
+                title: cursorProblem.title,
+                hint: cursorProblem.hint
+            )
         }
 
         return CursorPlanParser.withGrokPanel(
@@ -403,7 +705,12 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         }
     }
 
-    private func fetchCursor(token: String, now: Date) async throws -> UsageSnapshot {
+    private struct CursorFetchResult {
+        var snapshot: UsageSnapshot
+        var statusCode: Int
+    }
+
+    private func fetchCursor(token: String, now: Date) async throws -> CursorFetchResult {
         let primary: CursorPlanHTTPResponse?
         do {
             primary = try await postPeriod(
@@ -419,7 +726,7 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         if let primary {
             switch CursorPlanParser.interpret(statusCode: primary.statusCode, body: primary.body, now: now, source: .cursorPlan) {
             case .snapshot(let snapshot), .signedOut(let snapshot):
-                return snapshot
+                return CursorFetchResult(snapshot: snapshot, statusCode: primary.statusCode)
             case .retryFallback, .failed:
                 break
             }
@@ -435,9 +742,9 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         )
         switch CursorPlanParser.interpret(statusCode: fallback.statusCode, body: fallback.body, now: now, source: .cursorPlan) {
         case .snapshot(let snapshot), .signedOut(let snapshot):
-            return snapshot
+            return CursorFetchResult(snapshot: snapshot, statusCode: fallback.statusCode)
         case .retryFallback:
-            throw CursorPlanError.invalidResponse
+            throw CursorPlanError.requestFailed(fallback.statusCode)
         case .failed(let error):
             throw error
         }
@@ -866,21 +1173,24 @@ enum CursorPlanParser {
         return updated
     }
 
-    static func withCursorSignInRow(_ snapshot: UsageSnapshot) -> UsageSnapshot {
-        guard !snapshot.limits.contains(where: { $0.id == "cursor:session" }) else { return snapshot }
-        var limits = snapshot.limits
+    static func withCursorStatus(_ snapshot: UsageSnapshot, title: String, hint: String) -> UsageSnapshot {
+        var limits = snapshot.limits.filter { $0.id != "cursor:session" }
         limits.insert(
             UsageLimit(
                 id: "cursor:session",
                 name: "Cursor",
                 remainingPercent: 100,
                 resetDate: nil,
-                blockedReason: "Sign in with the Cursor app",
-                bucketID: "a-cursor-session"
+                blockedReason: title,
+                bucketID: "a-cursor-session",
+                contextNote: hint
             ),
             at: 0
         )
-        return copy(snapshot, limits: limits, note: "")
+        var updated = copy(snapshot, limits: limits, note: "")
+        updated.cursorStatusTitle = title
+        updated.cursorStatusHint = hint
+        return updated
     }
 
     private static func copy(
@@ -906,6 +1216,8 @@ enum CursorPlanParser {
         copy.billingShape = snapshot.billingShape
         copy.grokPanel = snapshot.grokPanel
         copy.grokProductShares = snapshot.grokProductShares
+        copy.cursorStatusTitle = snapshot.cursorStatusTitle
+        copy.cursorStatusHint = snapshot.cursorStatusHint
         return copy
     }
 

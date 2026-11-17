@@ -291,10 +291,13 @@ struct UsageSnapshot: Equatable, Sendable {
     var billingShape: UsageBillingShape = .chatGPT
     var grokPanel: GrokPanel? = nil
     var grokProductShares: [GrokProductShare] = []
+    var cursorStatusTitle: String? = nil
+    var cursorStatusHint: String? = nil
 
     var signedOutHeading: String {
         if source == .demo { return "Signed-out demo" }
         if source == .grokPlan { return "Grok is not signed in" }
+        if let cursorStatusTitle, plan == .cursor { return "Cursor \(cursorStatusTitle.lowercased())" }
         return plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
     }
 
@@ -305,8 +308,11 @@ struct UsageSnapshot: Equatable, Sendable {
         if source == .grokPlan {
             return "The sign-in command is grok login. Opening grok.com does not update Gaugelet."
         }
+        if let cursorStatusHint, plan == .cursor {
+            return cursorStatusHint
+        }
         if plan == .cursor {
-            return "Open the Cursor app and sign in, then refresh Gaugelet."
+            return "Open the Cursor desktop app and sign in, then refresh Gaugelet."
         }
         return "Sign in to Codex, then refresh Gaugelet to read live usage."
     }

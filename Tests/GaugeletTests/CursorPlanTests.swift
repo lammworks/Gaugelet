@@ -558,14 +558,20 @@ final class CursorPlanTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_800_000_000) }
         )
 
-        do {
-            _ = try await provider.fetchSnapshot()
-            XCTFail("Expected the Cursor failure to propagate")
-        } catch {
-            XCTAssertEqual(error as? CursorPlanError, .invalidResponse)
-        }
+        let snapshot = try await provider.fetchSnapshot()
         let requested = await transport.requested
-        XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL, CursorPlanParser.fallbackPeriodURL])
+
+        XCTAssertTrue(snapshot.isSignedIn)
+        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Request failed")
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("HTTP 503") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("Cursor desktop") == true)
+        XCTAssertFalse(snapshot.limits.first?.contextNote?.contains("cursor-session-token") == true)
+        XCTAssertEqual(snapshot.limits.first { $0.id == "cursor:grok-included" }?.remainingPercent, 90)
+        XCTAssertEqual(requested, [
+            CursorPlanParser.currentPeriodURL,
+            CursorPlanParser.fallbackPeriodURL,
+            CursorPlanParser.grokBillingURL
+        ])
     }
 
     func testRejectedCursorSessionShowsGrokWhenThatSignInWorks() async throws {
@@ -590,7 +596,11 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertTrue(snapshot.isSignedIn)
         XCTAssertEqual(snapshot.source, .grokPlan)
         XCTAssertEqual(snapshot.limits.first?.id, "cursor:session")
-        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Sign in with the Cursor app")
+        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Request failed")
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("HTTP 401") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("state.vscdb") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("Cursor desktop") == true)
+        XCTAssertFalse(snapshot.limits.first?.contextNote?.contains("expired-token") == true)
         XCTAssertFalse(snapshot.note.contains("Cursor rejected"))
         XCTAssertEqual(snapshot.limits.first { $0.id == "cursor:grok-included" }?.remainingPercent, 60)
         XCTAssertEqual(requested, [CursorPlanParser.currentPeriodURL, CursorPlanParser.grokBillingURL])
@@ -614,11 +624,10 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertFalse(snapshot.isSignedIn)
         XCTAssertNil(snapshot.accountID)
         XCTAssertEqual(snapshot.source, .cursorPlan)
-        XCTAssertEqual(snapshot.signedOutHeading, "Cursor is not signed in")
-        XCTAssertEqual(
-            snapshot.signedOutGuidance,
-            "Open the Cursor app and sign in, then refresh Gaugelet."
-        )
+        XCTAssertEqual(snapshot.signedOutHeading, "Cursor request failed")
+        XCTAssertTrue(snapshot.signedOutGuidance.contains("HTTP 401"))
+        XCTAssertTrue(snapshot.signedOutGuidance.contains("Cursor desktop"))
+        XCTAssertFalse(snapshot.signedOutGuidance.contains("expired-token"))
         guard case .login(let reason, let path) = snapshot.grokPanel else {
             XCTFail("Expected the missing Grok file to stay on its own card")
             return
@@ -738,6 +747,9 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(snapshot.source, .grokPlan)
         XCTAssertEqual(snapshot.accountID, CursorPlanParser.sessionIdentity(for: "grok-session-token"))
         XCTAssertFalse(snapshot.accountID?.contains("grok-session-token") == true)
+        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Not signed in")
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("Cursor desktop") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("state.vscdb") == true)
     }
 
     func testReadsOnlyTheCursorAccessToken() throws {
@@ -749,6 +761,105 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertEqual(try locator.cursorAccessToken(), "cursor-session-token")
         XCTAssertNil(CursorPlanParser.acceptedToken("bad token"))
         XCTAssertNil(CursorPlanParser.acceptedToken("line\nbreak"))
+    }
+
+    func testSealedCursorTokenIsUnsealedBeforeTheUsageRequest() async throws {
+        let wrapped = "cursor-safe-storage:v1:djEwwi3rPCzgH6FHW1NlJGQPds3FWw2mAeVzkazOUTQ/MiI="
+        let transport = SequenceTransport(responses: [
+            CursorPlanHTTPResponse(statusCode: 200, body: try periodJSON(
+                start: weeklyStart,
+                end: weeklyEnd,
+                total: 12,
+                auto: nil,
+                api: nil,
+                prepaidCents: nil
+            ))
+        ])
+        var locator = CursorCredentialLocator(
+            cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
+            grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
+        )
+        locator.cursorKeychainPassword = { .password(Data("test-cursor-key".utf8)) }
+        let provider = CursorPlanProvider(
+            locator: locator,
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+
+        let snapshot = try await provider.fetchSnapshot()
+        let bearers = await transport.bearers
+
+        XCTAssertEqual(snapshot.limits.first?.remainingPercent, 88)
+        XCTAssertNil(snapshot.limits.first { $0.id == "cursor:session" })
+        XCTAssertEqual(bearers, ["cursor-session-token"])
+        XCTAssertFalse(bearers.contains { $0.contains("cursor-safe-storage") })
+    }
+
+    func testSealedCursorTokenWithoutKeychainIsNotCalledSignedOut() throws {
+        let wrapped = "cursor-safe-storage:v1:djEwwi3rPCzgH6FHW1NlJGQPds3FWw2mAeVzkazOUTQ/MiI="
+        var locator = CursorCredentialLocator(
+            cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
+            grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
+        )
+        locator.cursorKeychainPassword = { .missing }
+
+        guard case .blocked(let title, let hint) = try locator.cursorResolution() else {
+            XCTFail("Expected a sealed token to stay blocked")
+            return
+        }
+        XCTAssertEqual(title, "Token sealed")
+        XCTAssertTrue(hint.contains("Cursor Safe Storage"))
+        XCTAssertTrue(hint.contains("Cursor Key"))
+        XCTAssertTrue(hint.contains("Cursor desktop"))
+        XCTAssertTrue(hint.contains("state.vscdb"))
+        XCTAssertFalse(hint.contains("djEw"))
+        XCTAssertFalse(hint.contains("test-cursor-key"))
+        XCTAssertNil(try locator.cursorAccessToken())
+
+        locator.cursorKeychainPassword = { .denied }
+        guard case .blocked(let deniedTitle, let deniedHint) = try locator.cursorResolution() else {
+            XCTFail("Expected a denied Keychain read to stay blocked")
+            return
+        }
+        XCTAssertEqual(deniedTitle, "Token sealed")
+        XCTAssertTrue(deniedHint.contains("did not allow Gaugelet"))
+        XCTAssertTrue(deniedHint.contains("Cursor Safe Storage"))
+        XCTAssertFalse(deniedHint.contains("djEw"))
+    }
+
+    func testCursorTimeoutStaysOnItsOwnRowWhenGrokLoads() async throws {
+        let transport = TimeoutThenGrokTransport()
+        let provider = CursorPlanProvider(
+            locator: CursorCredentialLocator(
+                cursorDatabaseURL: try makeCursorDatabase(token: "cursor-session-token"),
+                grokAuthURL: try makeGrokAuth(token: "grok-session-token")
+            ),
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_800_000_000) }
+        )
+
+        let snapshot = try await provider.fetchSnapshot()
+        XCTAssertEqual(snapshot.limits.first?.blockedReason, "Timed out")
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("12 seconds") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("state.vscdb") == true)
+        XCTAssertTrue(snapshot.limits.first?.contextNote?.contains("Cursor desktop") == true)
+        XCTAssertFalse(snapshot.limits.first?.contextNote?.contains("cursor-session-token") == true)
+        XCTAssertEqual(snapshot.limits.first { $0.id == "cursor:grok-included" }?.remainingPercent, 90)
+    }
+
+    func testMissingCursorDatabaseNamesTheDesktopApp() throws {
+        let locator = CursorCredentialLocator(
+            cursorDatabaseURL: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("\(UUID().uuidString)-missing.vscdb"),
+            grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
+        )
+        guard case .missing(let hint) = try locator.cursorResolution() else {
+            XCTFail("Expected a missing database to be not signed in")
+            return
+        }
+        XCTAssertTrue(hint.contains("state.vscdb"))
+        XCTAssertTrue(hint.contains("Cursor desktop"))
+        XCTAssertFalse(hint.contains("cursorAuth/accessToken="))
     }
 
     func testGrokFileSuppliesATokenOnlyWhenCursorHasNoSession() throws {
@@ -856,9 +967,22 @@ private enum FixtureDate {
     }()
 }
 
+private struct TimeoutThenGrokTransport: CursorPlanTransport {
+    func post(url: URL, bearerToken: String, extraHeaders: [String: String], body: Data) async throws -> CursorPlanHTTPResponse {
+        throw CursorPlanError.timedOut
+    }
+
+    func get(url: URL, bearerToken: String, extraHeaders: [String: String]) async throws -> CursorPlanHTTPResponse {
+        CursorPlanHTTPResponse(statusCode: 200, body: Data(#"""
+        {"config":{"creditUsagePercent":10,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-10-25T06:32:13.504Z"}}}
+        """#.utf8))
+    }
+}
+
 private actor SequenceTransport: CursorPlanTransport {
     private var responses: [CursorPlanHTTPResponse]
     private(set) var requested: [URL] = []
+    private(set) var bearers: [String] = []
     private(set) var getHeaders: [[String: String]] = []
 
     init(responses: [CursorPlanHTTPResponse]) {
@@ -867,6 +991,7 @@ private actor SequenceTransport: CursorPlanTransport {
 
     func post(url: URL, bearerToken: String, extraHeaders: [String: String], body: Data) async throws -> CursorPlanHTTPResponse {
         requested.append(url)
+        bearers.append(bearerToken)
         guard !responses.isEmpty else { throw CursorPlanError.invalidResponse }
         return responses.removeFirst()
     }

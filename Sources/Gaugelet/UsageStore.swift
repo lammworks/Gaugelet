@@ -553,7 +553,7 @@ final class UsageStore: ObservableObject {
         switch cursorError {
         case .notSignedIn, .unauthorized, .noUsage:
             return false
-        case .invalidResponse, .timedOut, .responseTooLarge, .sessionUnreadable, .grokResponse:
+        case .invalidResponse, .timedOut, .responseTooLarge, .sessionUnreadable, .grokResponse, .requestFailed:
             return true
         }
     }

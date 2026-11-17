@@ -869,11 +869,15 @@ private struct AllowanceRow: View {
             .frame(height: 4)
         }
         .padding(.vertical, 4)
+        .help(limit.contextNote ?? limit.blockedReason ?? limit.name)
         .accessibilityElement(children: .combine)
     }
 
     private var limitRowDetail: String {
-        [limit.contextNote, limit.blockedReason, limit.resetDescription(from: now)]
+        if limit.id == "cursor:session", let blockedReason = limit.blockedReason {
+            return blockedReason
+        }
+        return [limit.contextNote, limit.blockedReason, limit.resetDescription(from: now)]
             .compactMap { $0 }
             .joined(separator: " · ")
     }
