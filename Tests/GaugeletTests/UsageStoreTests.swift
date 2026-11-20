@@ -288,13 +288,16 @@ final class UsageStoreTests: XCTestCase {
         await chatgpt.waitForRequestCount(1)
         await waitForStoreUpdate()
 
-        XCTAssertEqual(await cursor.requestCount(), 1)
-        XCTAssertEqual(await cursor.recordedPrompts(), [true])
+        let quietCount = await cursor.requestCount()
+        let quietPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(quietCount, 1)
+        XCTAssertEqual(quietPrompts, [true])
 
         await cursor.resolve(0, with: .success(makeCursorReading(note: "interactive")))
         await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
         XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
-        XCTAssertEqual(await cursor.recordedPrompts(), [true])
+        let promptsAfterRead = await cursor.recordedPrompts()
+        XCTAssertEqual(promptsAfterRead, [true])
     }
 
     @MainActor
@@ -307,7 +310,8 @@ final class UsageStoreTests: XCTestCase {
 
         store.refresh()
         await cursor.waitForRequestCount(1)
-        XCTAssertEqual(await cursor.recordedPrompts(), [false])
+        let quietPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(quietPrompts, [false])
 
         store.selectedPlan = .cursor
         store.refreshPresented()
@@ -316,14 +320,44 @@ final class UsageStoreTests: XCTestCase {
         store.refresh()
         await chatgpt.waitForRequestCount(2)
         await waitForStoreUpdate()
-        XCTAssertEqual(await cursor.requestCount(), 2)
-        XCTAssertEqual(await cursor.recordedPrompts(), [false, true])
+        let supersededCount = await cursor.requestCount()
+        let supersededPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(supersededCount, 2)
+        XCTAssertEqual(supersededPrompts, [false, true])
 
         await cursor.resolve(1, with: .success(makeCursorReading(note: "interactive")))
         await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
         await cursor.resolve(0, with: .success(makeCursorReading(note: "quiet")))
         await waitForStoreUpdate()
         XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
+    }
+
+    @MainActor
+    func testDemoRoundTripDoesNotBlockTheNextQuietCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        store.selectedPlan = .cursor
+
+        store.refreshPresented()
+        await cursor.waitForRequestCount(1)
+
+        store.sourcePreference = .demo
+        store.sourcePreference = .codexAppServer
+        await cursor.waitForRequestCount(2)
+        await chatgpt.waitForRequestCount(1)
+
+        let count = await cursor.requestCount()
+        let prompts = await cursor.recordedPrompts()
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(prompts, [true, false])
+
+        await cursor.resolve(1, with: .success(makeCursorReading(note: "quiet")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "quiet" }
+        XCTAssertEqual(store.cursorState.snapshot?.note, "quiet")
+        XCTAssertEqual(store.cursorState.snapshot?.source, .cursorPlan)
     }
 
     @MainActor

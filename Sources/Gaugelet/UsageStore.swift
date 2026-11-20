@@ -245,7 +245,7 @@ final class UsageStore: ObservableObject {
 
         if sourcePreference == .demo {
             isRefreshing = false
-            isRefreshingCursor = false
+            stopCursorRefresh()
             publish(.demo(DemoUsageProvider.snapshot(for: scenario)))
             publishCursor(.demo(DemoUsageProvider.cursorSnapshot(for: scenario)))
             refreshActivity()
@@ -476,10 +476,11 @@ final class UsageStore: ObservableObject {
         _ result: Result<UsageSnapshot, Error>,
         generation: UInt64
     ) {
-        guard generation == cursorRefreshGeneration, cursorUsageEnabled, sourcePreference != .demo else { return }
+        guard generation == cursorRefreshGeneration else { return }
+        cursorRefreshTask = nil
         cursorRefreshAllowsPrompt = false
         isRefreshingCursor = false
-        cursorRefreshTask = nil
+        guard cursorUsageEnabled, sourcePreference != .demo else { return }
 
         switch result {
         case .success(let snapshot):
