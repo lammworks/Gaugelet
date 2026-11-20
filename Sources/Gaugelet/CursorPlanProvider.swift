@@ -77,8 +77,7 @@ protocol CursorPlanTransport: Sendable {
 struct CursorCredentialLocator: Sendable {
     var cursorDatabaseURL: URL
     var grokAuthURL: URL
-    var promptPermission = CursorKeychainPromptPermission()
-    /// Copied at the start of a fetch so a later refresh cannot change this read.
+    /// Set on the locator copy for one fetch. A later refresh cannot change it.
     var allowsKeychainPrompt = false
     var cursorKeychainPassword: @Sendable (String, Bool) -> CursorKeychainResult = { appName, allowPrompt in
         CursorKeychain.safeStoragePassword(forAppName: appName, allowPrompt: allowPrompt)
@@ -305,23 +304,6 @@ struct CursorCredentialLocator: Sendable {
     }
 }
 
-final class CursorKeychainPromptPermission: @unchecked Sendable {
-    private let lock = NSLock()
-    private var allowed = false
-
-    func setAllowed(_ allowed: Bool) {
-        lock.lock()
-        self.allowed = allowed
-        lock.unlock()
-    }
-
-    func isAllowed() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return allowed
-    }
-}
-
 enum CursorKeychain {
     static func safeStoragePassword(forAppName appName: String, allowPrompt: Bool) -> CursorKeychainResult {
         safeStoragePassword(forAppName: appName, allowPrompt: allowPrompt, lookup: lookup)
@@ -518,11 +500,13 @@ struct URLSessionCursorPlanTransport: CursorPlanTransport {
 
 protocol CursorPlanFetching: Sendable {
     func fetchSnapshot() async throws -> UsageSnapshot
-    func setKeychainPromptAllowed(_ allowed: Bool)
+    func fetchSnapshot(allowKeychainPrompt: Bool) async throws -> UsageSnapshot
 }
 
 extension CursorPlanFetching {
-    func setKeychainPromptAllowed(_ allowed: Bool) {}
+    func fetchSnapshot(allowKeychainPrompt: Bool) async throws -> UsageSnapshot {
+        try await fetchSnapshot()
+    }
 }
 
 struct CursorPlanProvider: CursorPlanFetching, Sendable {
@@ -540,14 +524,14 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         self.now = now
     }
 
-    func setKeychainPromptAllowed(_ allowed: Bool) {
-        locator.promptPermission.setAllowed(allowed)
+    func fetchSnapshot() async throws -> UsageSnapshot {
+        try await fetchSnapshot(allowKeychainPrompt: false)
     }
 
-    func fetchSnapshot() async throws -> UsageSnapshot {
+    func fetchSnapshot(allowKeychainPrompt: Bool) async throws -> UsageSnapshot {
         let currentTime = now()
         var locator = locator
-        locator.allowsKeychainPrompt = locator.promptPermission.isAllowed()
+        locator.allowsKeychainPrompt = allowKeychainPrompt
         let cursorResolution = try await Task.detached {
             try locator.cursorResolution()
         }.value

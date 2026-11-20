@@ -273,6 +273,60 @@ final class UsageStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testQuietRefreshDoesNotCancelAnInteractiveCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        store.selectedPlan = .cursor
+
+        store.refreshPresented()
+        await cursor.waitForRequestCount(1)
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(await cursor.requestCount(), 1)
+        XCTAssertEqual(await cursor.recordedPrompts(), [true])
+
+        await cursor.resolve(0, with: .success(makeCursorReading(note: "interactive")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
+        XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
+        XCTAssertEqual(await cursor.recordedPrompts(), [true])
+    }
+
+    @MainActor
+    func testInteractiveRefreshSupersedesAQuietCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+
+        store.refresh()
+        await cursor.waitForRequestCount(1)
+        XCTAssertEqual(await cursor.recordedPrompts(), [false])
+
+        store.selectedPlan = .cursor
+        store.refreshPresented()
+        await cursor.waitForRequestCount(2)
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(2)
+        await waitForStoreUpdate()
+        XCTAssertEqual(await cursor.requestCount(), 2)
+        XCTAssertEqual(await cursor.recordedPrompts(), [false, true])
+
+        await cursor.resolve(1, with: .success(makeCursorReading(note: "interactive")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
+        await cursor.resolve(0, with: .success(makeCursorReading(note: "quiet")))
+        await waitForStoreUpdate()
+        XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
+    }
+
+    @MainActor
     func testGrokSignInDetailStaysVisibleWithoutReplacingChatGPT() async {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "cursorUsageEnabled")
@@ -440,6 +494,7 @@ private struct FailingUsageProvider: UsageProviding {
 
 private actor ControlledCursorProvider: CursorPlanFetching {
     private var continuations: [CheckedContinuation<ControlledOutcome, Never>?] = []
+    private var promptFlags: [Bool] = []
 
     func fetchSnapshot() async throws -> UsageSnapshot {
         let outcome = await withCheckedContinuation { continuation in
@@ -452,6 +507,15 @@ private actor ControlledCursorProvider: CursorPlanFetching {
             throw ControlledProviderError(message: message)
         }
     }
+
+    func fetchSnapshot(allowKeychainPrompt: Bool) async throws -> UsageSnapshot {
+        promptFlags.append(allowKeychainPrompt)
+        return try await fetchSnapshot()
+    }
+
+    func requestCount() -> Int { continuations.count }
+
+    func recordedPrompts() -> [Bool] { promptFlags }
 
     func waitForRequestCount(_ expectedCount: Int) async {
         while continuations.count < expectedCount {
@@ -499,6 +563,27 @@ private actor ControlledUsageProvider: UsageProviding {
         continuations[index] = nil
         continuation.resume(returning: outcome)
     }
+}
+
+private func makeCursorReading(note: String) -> UsageSnapshot {
+    var snapshot = UsageSnapshot(
+        planName: "X Subscription",
+        limits: [
+            UsageLimit(
+                id: "cursor:included",
+                name: "Included usage",
+                remainingPercent: 40,
+                resetDate: nil
+            )
+        ],
+        lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+        isSignedIn: true,
+        note: note,
+        source: .cursorPlan,
+        sourceDetail: note
+    )
+    snapshot.plan = .cursor
+    return snapshot
 }
 
 private func makeSnapshot(id: String, remainingPercent: Int) -> UsageSnapshot {

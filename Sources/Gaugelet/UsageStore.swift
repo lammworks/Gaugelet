@@ -157,6 +157,8 @@ final class UsageStore: ObservableObject {
     private var cursorLastKnownGoodReceivedAt: Date?
     private var cursorRefreshGeneration: UInt64 = 0
     private var cursorRefreshTask: Task<Void, Never>?
+    /// True only while the in-flight Cursor task was started with a Keychain prompt.
+    private var cursorRefreshAllowsPrompt = false
     private var cursorStaleExpiryTask: Task<Void, Never>?
 
     init(
@@ -431,7 +433,6 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshCursor(allowKeychainPrompt: Bool = false) {
-        cursorProvider.setKeychainPromptAllowed(allowKeychainPrompt)
         guard sourcePreference != .demo else {
             isRefreshingCursor = false
             publishCursor(.demo(DemoUsageProvider.cursorSnapshot(for: scenario, now: now())))
@@ -442,9 +443,16 @@ final class UsageStore: ObservableObject {
             publishCursor(.unavailable(errorMessage: "Cursor plan usage is off."))
             return
         }
+        // A Codex poll is quiet. It must not cancel the Keychain Allow dialog
+        // or replace that fetch with one that cannot prompt.
+        if !allowKeychainPrompt, cursorRefreshAllowsPrompt, cursorRefreshTask != nil {
+            return
+        }
 
         cursorRefreshGeneration &+= 1
         let generation = cursorRefreshGeneration
+        let allowPrompt = allowKeychainPrompt
+        cursorRefreshAllowsPrompt = allowPrompt
         cursorRefreshTask?.cancel()
         isRefreshingCursor = true
         if cursorState.snapshot?.source != .cursorPlan && cursorState.snapshot?.source != .grokPlan {
@@ -455,7 +463,7 @@ final class UsageStore: ObservableObject {
         cursorRefreshTask = Task { [weak self] in
             let result: Result<UsageSnapshot, Error>
             do {
-                result = .success(try await cursorProvider.fetchSnapshot())
+                result = .success(try await cursorProvider.fetchSnapshot(allowKeychainPrompt: allowPrompt))
             } catch {
                 result = .failure(error)
             }
@@ -469,6 +477,7 @@ final class UsageStore: ObservableObject {
         generation: UInt64
     ) {
         guard generation == cursorRefreshGeneration, cursorUsageEnabled, sourcePreference != .demo else { return }
+        cursorRefreshAllowsPrompt = false
         isRefreshingCursor = false
         cursorRefreshTask = nil
 
@@ -567,6 +576,10 @@ final class UsageStore: ObservableObject {
     }
 
     private func stopCursorRefresh() {
+        // Turning Cursor usage off, or leaving live mode, is the explicit end
+        // of an in-flight read. A late Allow result is ignored because the
+        // generation no longer matches. A quiet poll does not come through here.
+        cursorRefreshAllowsPrompt = false
         cursorRefreshGeneration &+= 1
         cursorRefreshTask?.cancel()
         cursorRefreshTask = nil
