@@ -77,8 +77,11 @@ protocol CursorPlanTransport: Sendable {
 struct CursorCredentialLocator: Sendable {
     var cursorDatabaseURL: URL
     var grokAuthURL: URL
-    var cursorKeychainPassword: @Sendable (String) -> CursorKeychainResult = { appName in
-        CursorKeychain.safeStoragePassword(forAppName: appName)
+    var promptPermission = CursorKeychainPromptPermission()
+    /// Copied at the start of a fetch so a later refresh cannot change this read.
+    var allowsKeychainPrompt = false
+    var cursorKeychainPassword: @Sendable (String, Bool) -> CursorKeychainResult = { appName, allowPrompt in
+        CursorKeychain.safeStoragePassword(forAppName: appName, allowPrompt: allowPrompt)
     }
 
     static func live() -> CursorCredentialLocator {
@@ -172,7 +175,7 @@ struct CursorCredentialLocator: Sendable {
         }
         let service = "\(appName) Safe Storage"
         let account = "\(appName) Key"
-        switch cursorKeychainPassword(appName) {
+        switch cursorKeychainPassword(appName, allowsKeychainPrompt) {
         case .password(let password) where !password.isEmpty:
             guard let token = CursorSafeStorage.unseal(stored, password: password),
                   CursorPlanParser.acceptedToken(token) != nil
@@ -302,31 +305,70 @@ struct CursorCredentialLocator: Sendable {
     }
 }
 
-enum CursorKeychain {
-    private static let promptLock = NSLock()
-    private static var didPrompt = false
+final class CursorKeychainPromptPermission: @unchecked Sendable {
+    private let lock = NSLock()
+    private var allowed = false
 
-    static func safeStoragePassword(forAppName appName: String) -> CursorKeychainResult {
-        let quiet = lookup(appName: appName, prompt: false)
-        if case .denied = quiet, takePrompt() {
-            return lookup(appName: appName, prompt: true)
+    func setAllowed(_ allowed: Bool) {
+        lock.lock()
+        self.allowed = allowed
+        lock.unlock()
+    }
+
+    func isAllowed() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return allowed
+    }
+}
+
+enum CursorKeychain {
+    static func safeStoragePassword(forAppName appName: String, allowPrompt: Bool) -> CursorKeychainResult {
+        safeStoragePassword(forAppName: appName, allowPrompt: allowPrompt, lookup: lookup)
+    }
+
+    static func safeStoragePassword(
+        forAppName appName: String,
+        allowPrompt: Bool,
+        lookup: (String, Bool) -> CursorKeychainResult
+    ) -> CursorKeychainResult {
+        let quiet = lookup(appName, false)
+        if allowPrompt, case .denied = quiet {
+            return lookup(appName, true)
         }
         return quiet
     }
 
-    private static func takePrompt() -> Bool {
-        promptLock.lock()
-        defer { promptLock.unlock() }
-        if didPrompt { return false }
-        didPrompt = true
-        return true
+    /// Query used for one Safe Storage item. A quiet read sets both
+    /// `LAContext.interactionNotAllowed` and `kSecUseAuthenticationUIFail`.
+    /// The context flag only suppresses LocalAuthentication UI. The Keychain
+    /// flag is what stops the login-keychain Allow dialog.
+    static func matchingQuery(service: String, account: String, prompt: Bool) -> [String: Any] {
+        let context = LAContext()
+        context.interactionNotAllowed = !prompt
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
+        ]
+        if !prompt {
+            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        }
+        return query
+    }
+
+    static func candidateItems(forAppName appName: String) -> [(service: String, account: String)] {
+        let service = "\(appName) Safe Storage"
+        return [(service, "\(appName) Key"), (service, appName)]
     }
 
     private static func lookup(appName: String, prompt: Bool) -> CursorKeychainResult {
-        let service = "\(appName) Safe Storage"
         var sawDenial = false
-        for account in ["\(appName) Key", appName] {
-            switch genericPassword(service: service, account: account, prompt: prompt) {
+        for item in candidateItems(forAppName: appName) {
+            switch genericPassword(service: item.service, account: item.account, prompt: prompt) {
             case .password(let password):
                 return .password(password)
             case .missing:
@@ -339,22 +381,7 @@ enum CursorKeychain {
     }
 
     private static func genericPassword(service: String, account: String, prompt: Bool) -> CursorKeychainResult {
-        let context = LAContext()
-        context.interactionNotAllowed = !prompt
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context
-        ]
-        if !prompt {
-            // interactionNotAllowed suppresses LocalAuthentication UI only.
-            // The Safe Storage item still shows the login-keychain Allow dialog
-            // unless this flag fails the read instead.
-            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        }
+        let query = matchingQuery(service: service, account: account, prompt: prompt)
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
@@ -491,6 +518,11 @@ struct URLSessionCursorPlanTransport: CursorPlanTransport {
 
 protocol CursorPlanFetching: Sendable {
     func fetchSnapshot() async throws -> UsageSnapshot
+    func setKeychainPromptAllowed(_ allowed: Bool)
+}
+
+extension CursorPlanFetching {
+    func setKeychainPromptAllowed(_ allowed: Bool) {}
 }
 
 struct CursorPlanProvider: CursorPlanFetching, Sendable {
@@ -508,9 +540,14 @@ struct CursorPlanProvider: CursorPlanFetching, Sendable {
         self.now = now
     }
 
+    func setKeychainPromptAllowed(_ allowed: Bool) {
+        locator.promptPermission.setAllowed(allowed)
+    }
+
     func fetchSnapshot() async throws -> UsageSnapshot {
         let currentTime = now()
-        let locator = locator
+        var locator = locator
+        locator.allowsKeychainPrompt = locator.promptPermission.isAllowed()
         let cursorResolution = try await Task.detached {
             try locator.cursorResolution()
         }.value

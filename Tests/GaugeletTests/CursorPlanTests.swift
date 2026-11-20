@@ -1,4 +1,6 @@
 import Foundation
+import LocalAuthentication
+import Security
 import XCTest
 @testable import Gaugelet
 
@@ -779,7 +781,7 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        locator.cursorKeychainPassword = { _ in .password(Data("test-cursor-key".utf8)) }
+        locator.cursorKeychainPassword = { _, _ in .password(Data("test-cursor-key".utf8)) }
         let provider = CursorPlanProvider(
             locator: locator,
             transport: transport,
@@ -801,7 +803,7 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: try makeCursorDatabase(token: wrapped),
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        locator.cursorKeychainPassword = { _ in .missing }
+        locator.cursorKeychainPassword = { _, _ in .missing }
 
         guard case .blocked(let title, let hint) = try locator.cursorResolution() else {
             XCTFail("Expected a sealed token to stay blocked")
@@ -816,7 +818,7 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertFalse(hint.contains("test-cursor-key"))
         XCTAssertNil(try locator.cursorAccessToken())
 
-        locator.cursorKeychainPassword = { _ in .denied }
+        locator.cursorKeychainPassword = { _, _ in .denied }
         guard case .blocked(let deniedTitle, let deniedHint) = try locator.cursorResolution() else {
             XCTFail("Expected a denied Keychain read to stay blocked")
             return
@@ -834,7 +836,7 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: nightly,
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        nightlyLocator.cursorKeychainPassword = { appName in
+        nightlyLocator.cursorKeychainPassword = { appName, _ in
             guard appName == "Cursor Nightly" else { return .missing }
             return .password(Data("test-cursor-key".utf8))
         }
@@ -848,7 +850,7 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertTrue(source.contains("unsealed"))
         XCTAssertFalse(source.contains(wrapped))
 
-        nightlyLocator.cursorKeychainPassword = { _ in .missing }
+        nightlyLocator.cursorKeychainPassword = { _, _ in .missing }
         guard case .blocked(let title, let hint) = try nightlyLocator.cursorResolution() else {
             XCTFail("Expected a missing Nightly item to stay sealed")
             return
@@ -864,8 +866,9 @@ final class CursorPlanTests: XCTestCase {
             cursorDatabaseURL: insiders,
             grokAuthURL: URL(fileURLWithPath: "/tmp/gaugelet-missing-grok-auth.json")
         )
-        insidersLocator.cursorKeychainPassword = { appName in
+        insidersLocator.cursorKeychainPassword = { appName, allowPrompt in
             guard appName == "Cursor Insiders" else { return .missing }
+            XCTAssertFalse(allowPrompt)
             return .denied
         }
         guard case .blocked(let insidersTitle, let insidersHint) = try insidersLocator.cursorResolution() else {
@@ -877,6 +880,61 @@ final class CursorPlanTests: XCTestCase {
         XCTAssertTrue(insidersHint.contains("Cursor Insiders Key"))
         XCTAssertTrue(insidersHint.contains("did not allow Gaugelet"))
         XCTAssertFalse(insidersHint.contains("“Cursor Safe Storage”"))
+        let nightlyItems = CursorKeychain.candidateItems(forAppName: "Cursor Nightly")
+        XCTAssertEqual(nightlyItems.map(\.service), ["Cursor Nightly Safe Storage", "Cursor Nightly Safe Storage"])
+        XCTAssertEqual(nightlyItems.map(\.account), ["Cursor Nightly Key", "Cursor Nightly"])
+        let insidersItems = CursorKeychain.candidateItems(forAppName: "Cursor Insiders")
+        XCTAssertEqual(insidersItems.map(\.account), ["Cursor Insiders Key", "Cursor Insiders"])
+    }
+
+    func testQuietKeychainQuerySuppressesBothPromptPaths() {
+        let quiet = CursorKeychain.matchingQuery(
+            service: "Cursor Safe Storage",
+            account: "Cursor Key",
+            prompt: false
+        )
+        let quietContext = quiet[kSecUseAuthenticationContext as String] as? LAContext
+        XCTAssertEqual(quietContext?.interactionNotAllowed, true)
+        XCTAssertEqual(
+            quiet[kSecUseAuthenticationUI as String] as? String,
+            kSecUseAuthenticationUIFail as String
+        )
+
+        let prompted = CursorKeychain.matchingQuery(
+            service: "Cursor Nightly Safe Storage",
+            account: "Cursor Nightly Key",
+            prompt: true
+        )
+        let promptedContext = prompted[kSecUseAuthenticationContext as String] as? LAContext
+        XCTAssertEqual(promptedContext?.interactionNotAllowed, false)
+        XCTAssertNil(prompted[kSecUseAuthenticationUI as String])
+        XCTAssertEqual(prompted[kSecAttrService as String] as? String, "Cursor Nightly Safe Storage")
+        XCTAssertEqual(prompted[kSecAttrAccount as String] as? String, "Cursor Nightly Key")
+    }
+
+    func testBackgroundKeychainReadNeverEscalatesToAPrompt() {
+        var calls: [(String, Bool)] = []
+        let quiet = CursorKeychain.safeStoragePassword(forAppName: "Cursor", allowPrompt: false) { appName, prompt in
+            calls.append((appName, prompt))
+            return .denied
+        }
+        if case .denied = quiet {} else {
+            XCTFail("Expected the quiet denial to stay denied")
+        }
+        XCTAssertEqual(calls.map(\.1), [false])
+
+        calls.removeAll()
+        let prompted = CursorKeychain.safeStoragePassword(forAppName: "Cursor Nightly", allowPrompt: true) { appName, prompt in
+            calls.append((appName, prompt))
+            return prompt ? .password(Data("test-cursor-key".utf8)) : .denied
+        }
+        if case .password(let password) = prompted {
+            XCTAssertEqual(password, Data("test-cursor-key".utf8))
+        } else {
+            XCTFail("Expected the explicit read to unseal after the quiet denial")
+        }
+        XCTAssertEqual(calls.map(\.0), ["Cursor Nightly", "Cursor Nightly"])
+        XCTAssertEqual(calls.map(\.1), [false, true])
     }
 
     func testCursorTimeoutStaysOnItsOwnRowWhenGrokLoads() async throws {

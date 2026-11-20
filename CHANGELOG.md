@@ -2,15 +2,18 @@
 
 All notable Gaugelet changes are documented here. Gaugelet follows [Semantic Versioning](https://semver.org/) beginning with 1.0.0; the integer bundle build increments independently.
 
-## [Unreleased]
+## [1.2.0-beta.1] - 2026-11-19
+
+Build `5` — Beta release: Grok and Cursor plan usage.
 
 - Optional Grok and Cursor plan usage in the menu-bar popover. ChatGPT stays on the Codex reading. The Cursor tab stays off until you enable it.
 - Grok credits are read from the Grok CLI sign-in (`key` under `https://auth.x.ai` in `~/.grok/auth.json` or `$GROK_HOME/auth.json`) and shown as their own rows beside the Cursor plan. An expired or unreadable sign-in names the file and the JSON keys present, without values.
 - A Cursor timeout or unsupported payload keeps the last reading when Grok cannot be read. When Grok can be read, that pool stays visible and the Cursor row says whether the Cursor desktop app is not signed in, the saved token is sealed, the usage request failed, or the request timed out. The row tooltip names the source, HTTP status, or timeout, and never the token.
-- Current Cursor builds seal `cursorAuth/accessToken` as `cursor-safe-storage:v1`. Gaugelet unseals it in memory with that app’s Keychain item (`Cursor Safe Storage` / `Cursor Key`, or the Nightly or Insiders item named the same way) and still accepts a plaintext token in the same database key. The sealed text is not sent as the bearer. A quiet read fails instead of showing the login-keychain Allow dialog.
+- Current Cursor builds seal `cursorAuth/accessToken` as `cursor-safe-storage:v1`. Gaugelet unseals it in memory with that app’s Keychain item (`Cursor Safe Storage` / `Cursor Key`, or `Cursor Nightly Safe Storage` / `Cursor Nightly Key`, or the Insiders item named the same way) and still accepts a plaintext token in the same database key. The sealed text is not sent as the bearer.
+- A background refresh reads that Keychain item without showing the login-keychain Allow dialog. Turning Cursor usage on, or refreshing the Cursor tab, can show that dialog so you can allow the read.
 - Allowance alerts stay on the Cursor sign-in when the Grok reading is missing or fails.
 - The Grok weekly number is one shared plan. Cursor, Grok Bot, Bugbot, Chat, Voice, and Grok Build are shares of that plan, shown as percent of the plan used. Grok Build is the `grok` coding CLI and is not a second allowance. Older Cursor app plans keep the distinct included meters that account returns.
-- The menu bar shows ChatGPT and Grok remaining together when both are available. A stale service is marked, a blocked ChatGPT window stays visible, and the tooltip names loading and signed-out separately from unavailable. Demo data shows the shared weekly pool on the Grok mark. A Cursor app row can still be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
+- The menu bar shows ChatGPT and Grok remaining together when both are available. A stale service is marked, a blocked ChatGPT window stays visible, and the tooltip names loading and signed-out separately from unavailable. A Cursor sign-in with no Grok sign-in says Grok is signed out, not unavailable. Demo data shows the shared weekly pool on the Grok mark. A Cursor app row can still be pinned without replacing the ChatGPT reading when Cursor cannot be reached.
 - A rejected Cursor sign-in stays labeled as Cursor. The Grok card names `~/.grok/auth.json` or `$GROK_HOME/auth.json` and keeps the key names when that file cannot be used.
 - Privacy, security, and data-source notes name the read-only token key and the Cursor and xAI usage requests.
 - Allowance alerts compare Cursor and Grok readings only when both carry the same in-memory session identifier. Reset times outside a supported range stay unavailable.
@@ -100,6 +103,7 @@ Build `1` — first public release under the Gaugelet name.
 
 The internal 0.9 line established the Gaugelet name, native menu-bar interface, demo states, icon themes, notification threshold, and initial release-hardening checks. It was not the public 1.0 release and did not include the final Sparkle channel.
 
+[1.2.0-beta.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.2.0-beta.1
 [1.1.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.1
 [1.1.0]: https://github.com/lammworks/Gaugelet/releases/tag/v1.1.0
 [1.0.1]: https://github.com/lammworks/Gaugelet/releases/tag/v1.0.1

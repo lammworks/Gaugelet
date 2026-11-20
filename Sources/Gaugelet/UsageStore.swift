@@ -26,7 +26,7 @@ final class UsageStore: ObservableObject {
         didSet {
             defaults.set(cursorUsageEnabled, forKey: DefaultsKey.cursorUsageEnabled)
             if cursorUsageEnabled {
-                refreshCursor()
+                refreshCursor(allowKeychainPrompt: true)
             } else {
                 stopCursorRefresh()
                 clearCursorSnapshot()
@@ -209,7 +209,7 @@ final class UsageStore: ObservableObject {
 
     func refreshPresented() {
         if selectedPlan == .cursor {
-            refreshCursor()
+            refreshCursor(allowKeychainPrompt: true)
         } else {
             refresh()
         }
@@ -430,7 +430,8 @@ final class UsageStore: ObservableObject {
         NSApp.terminate(nil)
     }
 
-    func refreshCursor() {
+    func refreshCursor(allowKeychainPrompt: Bool = false) {
+        cursorProvider.setKeychainPromptAllowed(allowKeychainPrompt)
         guard sourcePreference != .demo else {
             isRefreshingCursor = false
             publishCursor(.demo(DemoUsageProvider.cursorSnapshot(for: scenario, now: now())))
