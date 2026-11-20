@@ -87,10 +87,15 @@ If Gaugelet saves you from an unnecessary hard stop—or simply earns a permanen
 Gaugelet ── private stdio pipe ──> codex app-server ── existing Codex session ──> OpenAI
     │
     └── displays account/rateLimits/read results; stores no usage-history database
+
+Gaugelet ── read-only access token, only when enabled ──> Cursor or xAI usage endpoint
+    │
+    └── Cursor plan rows, plus separate Grok sign-in credits when ~/.grok/auth.json has a session
 ```
 
 - Gaugelet starts the locally installed `codex app-server` and makes a read-only `account/rateLimits/read` request.
-- Authentication stays with Codex. Gaugelet does not read browser cookies, Codex authentication files, access tokens, API keys, prompts, responses, or project files.
+- Authentication stays with Codex for ChatGPT. Gaugelet does not read browser cookies, Codex authentication files, API keys, prompts, responses, or project files.
+- Cursor plan usage is optional. When you enable it, Gaugelet reads the local Cursor access token, unsealing it with that app’s Safe Storage Keychain item (Cursor, Cursor Nightly, or Cursor Insiders) when the current app stores it that way, and, when `grok login` has written one, the Grok CLI bearer in `~/.grok/auth.json`. It does not save either token. The X Subscription weekly pool and the Grok sign-in credits are separate rows. A Cursor row that says “Not signed in”, “Token sealed”, “Request failed”, or “Timed out” is about the Cursor desktop app, not the Grok pool.
 - Live readings stay in memory. Preferences use standard macOS storage.
 - Demo, stale, unavailable, blocked, and signed-out states are visibly distinguished. Missing data is never replaced with a plausible-looking estimate.
 

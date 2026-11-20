@@ -42,12 +42,13 @@ Pull requests require passing CI and maintainer review. A submission does not gu
 ## Engineering principles
 
 - Preserve the read-only Codex boundary. Do not access browser storage, Codex credentials, prompts, responses, or project files.
-- Treat App Server output as untrusted. Keep timeouts, size bounds, parsing limits, and explicit unavailable states.
+- The opt-in Cursor plan reading may use only `cursorAuth/accessToken`, that app’s Safe Storage Keychain password needed to unseal it (`Cursor Safe Storage` / `Cursor Key`, or the Nightly or Insiders item of the same shape), or the Grok CLI bearer (`key` in `~/.grok/auth.json` / `$GROK_HOME/auth.json`), and only for the documented usage requests. Do not log, store, or refresh those tokens, and do not read any other Cursor or Grok data.
+- Treat App Server and Cursor or Grok usage output as untrusted. Keep timeouts, size bounds, parsing limits, and explicit unavailable states.
 - Never invent usage values. Missing upstream windows remain unavailable.
 - Keep the five-minute refresh and manual refresh semantics clear; OpenAI's enforced limits are authoritative.
 - Maintain macOS accessibility, keyboard behavior, light/dark appearance, and Reduce Motion support.
 - Keep system-owned app icons on the stable Core identity; themes belong to the menu bar and in-app presentation.
-- Do not add analytics, telemetry, crash upload, persistent usage history, a backend, or a new network destination without prior discussion and privacy review.
+- Do not add analytics, telemetry, crash upload, persistent usage history, a backend, or a new network destination without prior discussion and privacy review. Cursor (`cursor.com`, `api2.cursor.sh`) and xAI (`cli-chat-proxy.grok.com`) are the documented destinations for the opt-in plan reading.
 - Pin release dependencies and preserve required license notices.
 
 ## Tests and evidence

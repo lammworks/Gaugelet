@@ -17,6 +17,9 @@ jobs:
   shipping-check:
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,6 +60,32 @@ jobs:
           set -euo pipefail
           PYTHONPYCACHEPREFIX="${RUNNER_TEMP}/gaugelet-pycache" \
             python3 -m compileall -q Scripts Packaging/dmg_settings.py
+
+      - name: Name the unsigned test DMG
+        id: unsigned-dmg
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -f build/candidate/Gaugelet.dmg
+          # The candidate packager ad-hoc signs so the existing DMG checks can
+          # verify the bundle. It does not use a Developer ID identity, a
+          # keychain, or notarization, and this step does not publish a release.
+          echo "name=Gaugelet-unsigned-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload unsigned test DMG
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.unsigned-dmg.outputs.name }}
+          path: build/candidate/Gaugelet.dmg
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: false
+          # The name is the head SHA, so a re-run of this job would otherwise
+          # fail with 409 after the shipping build. Replace the previous file.
+          overwrite: true
 
   website-check:
     runs-on: ubuntu-latest

@@ -54,9 +54,136 @@ enum GaugeletMenuBarPresentation {
     }
 }
 
+enum MenuBarSlot: Equatable {
+    case percent(Int)
+    case marked(mark: String, status: String)
+}
+
+struct MenuBarPiece: Equatable {
+    let label: String
+    let slot: MenuBarSlot
+}
+
+enum GaugeletMenuBarStatus {
+    static func title(
+        chatgpt: UsageState,
+        cursor: UsageState,
+        cursorEnabled: Bool,
+        showPercentage: Bool
+    ) -> String {
+        var pieces: [MenuBarPiece] = []
+        if let chat = piece(for: chatgpt, label: "GPT", poolID: nil) {
+            pieces.append(chat)
+        }
+        if cursorEnabled, let grok = piece(for: cursor, label: "G", poolID: "cursor:grok-included") {
+            pieces.append(grok)
+        }
+        let demo = isDemo(chatgpt) || (cursorEnabled && isDemo(cursor))
+        let body = formatted(pieces, showPercentage: showPercentage)
+        if body.isEmpty { return demo ? "D" : "" }
+        return demo ? "D \(body)" : body
+    }
+
+    static func toolTip(chatgpt: UsageState, cursor: UsageState, cursorEnabled: Bool) -> String {
+        let pieces = [
+            piece(for: chatgpt, label: "ChatGPT", poolID: nil),
+            cursorEnabled ? piece(for: cursor, label: "Grok", poolID: "cursor:grok-included") : nil
+        ].compactMap { $0 }
+        guard !pieces.isEmpty else { return "Gaugelet" }
+        let detail = pieces.map { piece in
+            switch piece.slot {
+            case .percent(let value):
+                "\(piece.label) \(value)% left"
+            case .marked(_, let status):
+                "\(piece.label) \(status)"
+            }
+        }.joined(separator: ". ")
+        return "Gaugelet — \(detail)"
+    }
+
+    private static func formatted(_ pieces: [MenuBarPiece], showPercentage: Bool) -> String {
+        let visible = pieces.filter { piece in
+            switch piece.slot {
+            case .percent: showPercentage
+            case .marked: true
+            }
+        }
+        guard !visible.isEmpty else { return "" }
+        if visible.count == 1, visible[0].label == "GPT" {
+            switch visible[0].slot {
+            case .percent(let value):
+                return "\(value)%"
+            case .marked(let mark, _) where mark == "blocked":
+                return "blocked"
+            default:
+                break
+            }
+        }
+        return visible.map { piece in
+            switch piece.slot {
+            case .percent(let value):
+                "\(piece.label) \(value)%"
+            case .marked(let mark, _):
+                "\(piece.label) \(mark)"
+            }
+        }.joined(separator: " · ")
+    }
+
+    private static func piece(for state: UsageState, label: String, poolID: String?) -> MenuBarPiece? {
+        switch state {
+        case .loading:
+            return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "connecting"))
+        case .unavailable:
+            return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "unavailable"))
+        case .stale:
+            return MenuBarPiece(label: label, slot: .marked(mark: "!", status: "stale"))
+        case .live(let snapshot), .demo(let snapshot):
+            guard snapshot.isSignedIn else {
+                return MenuBarPiece(label: label, slot: .marked(mark: "—", status: "signed out"))
+            }
+            guard let limit = poolLimit(in: snapshot, poolID: poolID) else {
+                if poolID == nil { return nil }
+                let status = grokNeedsSignIn(snapshot, poolID: poolID) ? "signed out" : "unavailable"
+                return MenuBarPiece(label: label, slot: .marked(mark: "—", status: status))
+            }
+            if limit.blockedReason != nil {
+                return MenuBarPiece(label: label, slot: .marked(mark: "blocked", status: "blocked"))
+            }
+            return MenuBarPiece(label: label, slot: .percent(limit.clampedRemainingPercent))
+        }
+    }
+
+    private static func poolLimit(in snapshot: UsageSnapshot, poolID: String?) -> UsageLimit? {
+        if let poolID {
+            if let match = snapshot.limits.first(where: { $0.id == poolID }) {
+                return match
+            }
+            if poolID == "cursor:grok-included", snapshot.source == .demo {
+                return snapshot.limits.first { $0.id == "cursor:included" }
+            }
+            return nil
+        }
+        return snapshot.menuBarLimit(pinnedID: "")
+    }
+
+    private static func grokNeedsSignIn(_ snapshot: UsageSnapshot, poolID: String?) -> Bool {
+        guard poolID == "cursor:grok-included" else { return false }
+        if case .login = snapshot.grokPanel { return true }
+        return false
+    }
+
+    private static func isDemo(_ state: UsageState) -> Bool {
+        if case .demo = state { return true }
+        return false
+    }
+}
+
 enum GaugeletLink: String, CaseIterable, Sendable {
     case chatGPT = "https://chatgpt.com"
     case usage = "https://chatgpt.com/codex/settings/usage"
+    case grokDashboard = "https://grok.com/dashboard"
+    case cursorDashboard = "https://cursor.com/dashboard"
+    case cursorSpending = "https://cursor.com/dashboard?tab=spending"
     case releases = "https://github.com/lammworks/Gaugelet/releases"
     case buyMeACoffee = "https://www.paypal.com/donate/?hosted_button_id=Z4QV6SJVXSCH4"
     case privacy = "https://github.com/lammworks/Gaugelet/blob/main/PRIVACY.md"

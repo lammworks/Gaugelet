@@ -48,8 +48,8 @@ trap cleanup EXIT INT TERM
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INFO_PLIST}")"
-[[ "${VERSION}" == "1.1.1" && "${BUILD}" == "4" ]] \
-    || fail "notarized Gaugelet 1.1.1 path expects 1.1.1 (4)"
+[[ "${VERSION}" == "1.2.0-beta.1" && "${BUILD}" == "5" ]] \
+    || fail "notarized Gaugelet 1.2.0-beta.1 path expects 1.2.0-beta.1 (5)"
 
 typeset -a SECURITY_KEYCHAIN_ARGS CODESIGN_KEYCHAIN_ARGS
 SECURITY_KEYCHAIN_ARGS=()

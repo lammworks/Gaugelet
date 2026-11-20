@@ -117,8 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
-        popover.contentSize = NSSize(width: 336, height: 466)
+        popover.contentSize = NSSize(width: 336, height: 420)
         let hostingController = NSHostingController(rootView: rootView)
+        hostingController.sizingOptions = [.preferredContentSize]
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
         popover.contentViewController = hostingController
@@ -127,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
         let isDark = isStatusBarDark(button)
-        let iconState = GaugeletMenuBarPresentation.iconState(for: store.state, pinnedID: store.pinnedLimitID)
+        let state = store.menuBarUsageState
+        let iconState = GaugeletMenuBarPresentation.iconState(for: state, pinnedID: store.pinnedLimitID)
         button.image = GaugeletAppIcon.menuBarImage(
             for: store.iconStyle,
             mode: iconState.mode,
@@ -135,37 +137,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             isDark: isDark
         )
 
-        let state = store.state
-
-        switch state {
-        case .loading:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — connecting to Codex"
-            button.setAccessibilityLabel("Gaugelet, connecting to Codex")
-
-        case .unavailable:
-            button.title = store.showPercentageInMenuBar ? "  —" : ""
-            button.toolTip = "Gaugelet — live usage unavailable"
-            button.setAccessibilityLabel("Gaugelet, live usage unavailable")
-
-        case .live(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  \(value)" : ""
-            button.toolTip = "Gaugelet — \(snapshot.menuBarLimit(pinnedID: store.pinnedLimitID)?.compactName ?? "Pinned limit unavailable")"
-            button.setAccessibilityLabel(accessibilityLabel(for: snapshot))
-
-        case .stale(let snapshot, _, _):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  ! \(value)" : "  !"
-            button.toolTip = "Gaugelet — showing stale usage; open for details"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), stale")
-
-        case .demo(let snapshot):
-            let value = statusValue(for: snapshot)
-            button.title = store.showPercentageInMenuBar ? "  D \(value)" : "  D"
-            button.toolTip = "Gaugelet — demo data"
-            button.setAccessibilityLabel("\(accessibilityLabel(for: snapshot)), demo data")
-        }
+        let title = GaugeletMenuBarStatus.title(
+            chatgpt: store.state,
+            cursor: store.cursorState,
+            cursorEnabled: store.cursorUsageEnabled,
+            showPercentage: store.showPercentageInMenuBar
+        )
+        button.title = title.isEmpty ? "" : "  \(title)"
+        let tip = GaugeletMenuBarStatus.toolTip(
+            chatgpt: store.state,
+            cursor: store.cursorState,
+            cursorEnabled: store.cursorUsageEnabled
+        )
+        button.toolTip = tip
+        button.setAccessibilityLabel(tip)
     }
 
     private func notificationPreferenceChanged(_ enabled: Bool) {
@@ -205,26 +190,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func isStatusBarDark(_ button: NSStatusBarButton) -> Bool {
         button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
-
-    private func statusValue(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn, let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else { return "—" }
-        if closest.blockedReason != nil { return "blocked" }
-        if closest.isCapped {
-            return closest.resetDate?.gaugeletCountdownValue() ?? "0%"
-        }
-        return "\(closest.clampedRemainingPercent)%"
-    }
-
-    private func accessibilityLabel(for snapshot: UsageSnapshot) -> String {
-        guard snapshot.isSignedIn else { return "Gaugelet, not connected" }
-        guard let closest = snapshot.menuBarLimit(pinnedID: store.pinnedLimitID) else {
-            return "Gaugelet, selected allowance unavailable"
-        }
-        if let blockedReason = closest.blockedReason {
-            return "Gaugelet, \(closest.displayName), \(blockedReason.lowercased())"
-        }
-        return "Gaugelet, \(closest.displayName), \(closest.clampedRemainingPercent) percent left"
     }
 
     @objc

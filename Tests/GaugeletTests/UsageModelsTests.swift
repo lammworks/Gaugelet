@@ -272,4 +272,10 @@ final class UsageModelsTests: XCTestCase {
         XCTAssertEqual(reset.gaugeletRelativeReset(from: now), "Resets in 2h 14m")
         XCTAssertEqual(reset.gaugeletCountdownValue(from: now), "2h")
     }
+
+    func testOversizedResetDoesNotTrapTheCountdown() {
+        let distant = Date(timeIntervalSince1970: 1e308)
+        XCTAssertEqual(distant.gaugeletRelativeReset(), "Reset time unavailable")
+        XCTAssertEqual(distant.gaugeletCountdownValue(), "—")
+    }
 }

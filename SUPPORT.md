@@ -42,6 +42,31 @@ See [INSTALL.md](INSTALL.md) for the complete installation path.
 
 Gaugelet displays what the local Codex App Server returns. Missing windows remain unavailable. Values can differ materially from ChatGPT's interface and either display may move faster or slower during heavy use. OpenAI's enforced limits are authoritative.
 
+## Cursor or Grok usage does not appear
+
+Cursor plan usage is off until you enable it on the Cursor tab or in Settings. Grok credits need a Grok CLI sign-in. In Terminal, run `grok login`. That writes `~/.grok/auth.json`. Opening grok.com does not. Gaugelet does not refresh the token. The weekly number is one shared plan; Cursor, Grok Bot, Bugbot, Chat, Voice, and Grok Build are shares of that plan. Grok Build is the `grok` coding CLI.
+
+Check the sign-in without printing secrets:
+
+1. In Terminal, run `grok login` if the Grok CLI is installed.
+2. Confirm the file exists: `test -f "${GROK_HOME:-$HOME/.grok}/auth.json" && echo "auth file present"`.
+3. Print only the key names:
+
+   ```bash
+   python3 -c 'import json, os
+   p = os.path.join(os.environ.get("GROK_HOME") or os.path.expanduser("~/.grok"), "auth.json")
+   data = json.load(open(p))
+   print("top-level:", ", ".join(sorted(data)))
+   for name, value in sorted(data.items()):
+       if isinstance(value, dict):
+           print(name, "fields:", ", ".join(sorted(value)))'
+   ```
+4. Expect a top-level key starting with `https://auth.x.ai::` and, inside it, `key`, `expires_at`, `auth_mode`, and `user_id`. Do not paste the values. An `xai::api_key` entry is not enough. If `expires_at` is in the past, run `grok login` again. Gaugelet does not refresh tokens and does not read the keychain for Grok.
+
+The Cursor row is separate from the Grok weekly pool. “Not signed in” means no `cursorAuth/accessToken` was in the Cursor desktop `state.vscdb`. “Token sealed” means the value is sealed and that app’s Keychain item could not be read: `Cursor Safe Storage` / `Cursor Key` for Cursor, or the Nightly or Insiders item named the same way. Open that Cursor app so the item exists. “Request failed” means a token was read and the usage request returned an HTTP status, which the row tooltip names. “Timed out” means that request did not answer within 12 seconds. The tooltip names the source it tried and never includes the token.
+
+A rejected sign-in stays on screen with the path and those key names. A Cursor reading and a Grok reading are separate rows. Neither replaces a good ChatGPT reading.
+
 ## Launch at Login
 
 The toggle is disabled while Gaugelet runs from a DMG, a translocated path, or an unsupported location. Move the app to `/Applications`, quit the old copy, and open the installed copy.

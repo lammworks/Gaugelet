@@ -25,15 +25,62 @@ enum UsageTone: Equatable, Sendable {
     case unavailable
 }
 
+enum UsagePlan: String, Equatable, Sendable, CaseIterable, Identifiable {
+    case chatgpt
+    case cursor
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chatgpt: "ChatGPT"
+        case .cursor: "Cursor"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .chatgpt: "ChatGPT plan usage"
+        case .cursor: "Grok and Cursor plan usage"
+        }
+    }
+}
+
+enum UsageBillingShape: Equatable, Sendable {
+    case chatGPT
+    case weeklyPool
+    case legacyCycle
+}
+
+enum GrokPanel: Equatable, Sendable {
+    case login(reason: String, pathLabel: String)
+    case status(String)
+
+    static let command = "grok login"
+}
+
+struct GrokProductShare: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let usedPercent: Int
+    let detail: String
+}
+
 enum UsageSource: Equatable, Sendable {
     case codexAppServer
+    case cursorPlan
+    case grokPlan
     case demo
 
     var badgeTitle: String {
         switch self {
-        case .codexAppServer: "LIVE"
+        case .codexAppServer, .cursorPlan, .grokPlan: "LIVE"
         case .demo: "DEMO"
         }
+    }
+
+    var isLiveAccount: Bool {
+        self != .demo
     }
 }
 
@@ -142,7 +189,8 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         resetDate: Date?,
         blockedReason: String? = nil,
         bucketID: String? = nil,
-        windowDurationMins: Int? = nil
+        windowDurationMins: Int? = nil,
+        contextNote: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -151,7 +199,10 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         self.blockedReason = blockedReason
         self.bucketID = bucketID
         self.windowDurationMins = windowDurationMins
+        self.contextNote = contextNote
     }
+
+    let contextNote: String?
 
     var isShared: Bool { ["codex", "overall"].contains(bucketID?.lowercased() ?? "") }
 
@@ -203,6 +254,9 @@ struct UsageLimit: Identifiable, Equatable, Sendable {
         if lowercased.hasSuffix(" usage limit") {
             return readableWindow
         }
+        if lowercased.hasSuffix(" usage") {
+            return readableWindow + " limit"
+        }
         if lowercased.hasSuffix(" limit") {
             return String(readableWindow.dropLast(" limit".count)) + " usage limit"
         }
@@ -233,6 +287,35 @@ struct UsageSnapshot: Equatable, Sendable {
     var resetCredits: EarnedResetCredits? = nil
     var credits: [CreditBalance] = []
     var omittedLimitCount: Int = 0
+    var plan: UsagePlan = .chatgpt
+    var billingShape: UsageBillingShape = .chatGPT
+    var grokPanel: GrokPanel? = nil
+    var grokProductShares: [GrokProductShare] = []
+    var cursorStatusTitle: String? = nil
+    var cursorStatusHint: String? = nil
+
+    var signedOutHeading: String {
+        if source == .demo { return "Signed-out demo" }
+        if source == .grokPlan { return "Grok is not signed in" }
+        if let cursorStatusTitle, plan == .cursor { return "Cursor \(cursorStatusTitle.lowercased())" }
+        return plan == .cursor ? "Cursor is not signed in" : "Codex is not connected"
+    }
+
+    var signedOutGuidance: String {
+        if source == .demo {
+            return "This preview contains demo data only. No account information is being read."
+        }
+        if source == .grokPlan {
+            return "The sign-in command is grok login. Opening grok.com does not update Gaugelet."
+        }
+        if let cursorStatusHint, plan == .cursor {
+            return cursorStatusHint
+        }
+        if plan == .cursor {
+            return "Open the Cursor desktop app and sign in, then refresh Gaugelet."
+        }
+        return "Sign in to Codex, then refresh Gaugelet to read live usage."
+    }
 
     // Ordering never depends on consumption or reset timestamps.
     var orderedLimits: [UsageLimit] {
@@ -246,8 +329,13 @@ struct UsageSnapshot: Equatable, Sendable {
     }
 
     func menuBarLimit(pinnedID: String) -> UsageLimit? {
-        if !pinnedID.isEmpty { return limits.first { $0.id == pinnedID } }
-        return orderedLimits.first
+        let allowances = limits.filter { !$0.id.contains("grok-product") }
+        if pinnedID.contains("grok-product") {
+            return allowances.first { $0.id == "cursor:grok-included" }
+        }
+        if !pinnedID.isEmpty { return allowances.first { $0.id == pinnedID } }
+        return allowances.first { $0.id == "cursor:grok-included" }
+            ?? orderedLimits.first { !$0.id.contains("grok-product") }
     }
 
     var closestLimit: UsageLimit? {
@@ -295,7 +383,8 @@ enum UsageState: Equatable, Sendable {
     var badgeTitle: String {
         switch self {
         case .loading: "CONNECTING"
-        case .live(let snapshot): snapshot.source.badgeTitle
+        case .live(let snapshot):
+            snapshot.isSignedIn ? snapshot.source.badgeTitle : "SIGNED OUT"
         case .stale: "STALE"
         case .unavailable: "OFFLINE"
         case .demo: "DEMO"
@@ -303,9 +392,18 @@ enum UsageState: Equatable, Sendable {
     }
 
     var sourceDetail: String {
+        detail(for: .chatgpt)
+    }
+
+    func detail(for plan: UsagePlan) -> String {
         switch self {
         case .loading:
-            "Connecting to Codex. No usage value is available yet."
+            switch plan {
+            case .chatgpt:
+                "Connecting to Codex. No usage value is available yet."
+            case .cursor:
+                "Connecting to Cursor. No usage value is available yet."
+            }
         case .live(let snapshot), .demo(let snapshot):
             snapshot.sourceDetail
         case .stale(let snapshot, let errorMessage, _):
@@ -322,8 +420,10 @@ enum UsageNotificationPolicy {
         notifyOnRestore: Bool = false
     ) -> [GaugeletUsageAlert] {
         guard let previous, let current,
-              previous.source == .codexAppServer, current.source == .codexAppServer,
-              previous.isSignedIn, current.isSignedIn, previous.accountID == current.accountID
+              previous.source.isLiveAccount, previous.source == current.source,
+              previous.plan == current.plan,
+              previous.isSignedIn, current.isSignedIn,
+              sameAccount(previous, current)
         else { return [] }
         let threshold = min(max(warningThreshold, 5), 50)
         return current.orderedLimits.compactMap { limit in
@@ -344,12 +444,32 @@ enum UsageNotificationPolicy {
                 title = "Allowance restored"
                 body = "\(limit.compactName) is available again · \(limit.clampedRemainingPercent)% left."
             } else { return nil }
-            return GaugeletUsageAlert(kind: kind, identifier: "gaugelet.usage.\(limit.id).\(kind.rawValue)", title: title, body: body)
+            return GaugeletUsageAlert(
+                kind: kind,
+                identifier: "gaugelet.usage.\(current.plan.rawValue).\(limit.id).\(kind.rawValue)",
+                title: title,
+                body: body
+            )
         }
     }
 
     static func alert(previous: UsageSnapshot?, current: UsageSnapshot?, warningThreshold: Int) -> GaugeletUsageAlert? {
         alerts(previous: previous, current: current, warningThreshold: warningThreshold).first
+    }
+
+    private static func sameAccount(_ previous: UsageSnapshot, _ current: UsageSnapshot) -> Bool {
+        let previousAccount = nonempty(previous.accountID)
+        let currentAccount = nonempty(current.accountID)
+        if previous.plan == .cursor || previous.source == .cursorPlan || previous.source == .grokPlan {
+            guard let previousAccount, let currentAccount else { return false }
+            return previousAccount == currentAccount
+        }
+        return previousAccount == currentAccount
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 
@@ -364,6 +484,12 @@ struct CreditBalance: Identifiable, Equatable, Sendable {
     let balance: String?
     let hasCredits: Bool
     let unlimited: Bool
+    var detail: String? = nil
+    var usesPlainLabel: Bool = false
+
+    var label: String {
+        usesPlainLabel ? name : "\(name) credits"
+    }
 
     var displayValue: String {
         if unlimited { return "Unlimited" }
@@ -398,6 +524,113 @@ enum DemoUsageProvider {
         value.resetCredits = EarnedResetCredits(availableCount: 2, earliestKnownExpiry: now.addingTimeInterval(7 * 86_400))
         value.credits = [CreditBalance(id: "demo", name: "Demo", balance: "40", hasCredits: true, unlimited: false)]
         return value
+    }
+
+    static func cursorSnapshot(for scenario: DemoScenario, now: Date = Date()) -> UsageSnapshot {
+        switch scenario {
+        case .comfortable:
+            return cursorSnapshot(
+                remaining: 72,
+                reset: now.addingTimeInterval(4 * 24 * 60 * 60 + 6 * 60 * 60),
+                signedIn: true,
+                note: "You have room in the shared weekly pool.",
+                additional: "$18.40",
+                now: now
+            )
+        case .low:
+            return cursorSnapshot(
+                remaining: 16,
+                reset: now.addingTimeInterval(2 * 24 * 60 * 60 + 4 * 60 * 60),
+                signedIn: true,
+                note: "The shared weekly pool is running low.",
+                additional: "$4.00",
+                now: now
+            )
+        case .capped:
+            return cursorSnapshot(
+                remaining: 0,
+                reset: now.addingTimeInterval(18 * 60 * 60),
+                signedIn: true,
+                note: "The shared weekly pool is used up.",
+                additional: "$0.50",
+                now: now
+            )
+        case .signedOut:
+            return cursorSnapshot(
+                remaining: 0,
+                reset: nil,
+                signedIn: false,
+                note: "Open Cursor and sign in.",
+                additional: nil,
+                now: now
+            )
+        }
+    }
+
+    private static func cursorSnapshot(
+        remaining: Int,
+        reset: Date?,
+        signedIn: Bool,
+        note: String,
+        additional: String?,
+        now: Date
+    ) -> UsageSnapshot {
+        var snapshot = UsageSnapshot(
+            planName: signedIn ? "X Subscription" : "Not connected",
+            limits: signedIn ? [
+                UsageLimit(
+                    id: "cursor:included",
+                    name: "Included usage",
+                    remainingPercent: remaining,
+                    resetDate: reset,
+                    bucketID: "a-included",
+                    contextNote: "Weekly pool · Grok and Cursor"
+                ),
+                UsageLimit(
+                    id: "cursor:models",
+                    name: "Cursor models",
+                    remainingPercent: remaining,
+                    resetDate: reset,
+                    bucketID: "b-models",
+                    contextNote: "Grok and Composer · same weekly pool"
+                )
+            ] : [],
+            lastUpdated: now,
+            isSignedIn: signedIn,
+            note: note,
+            source: .demo,
+            sourceDetail: "Demo data only. No account information is being read."
+        )
+        snapshot.plan = .cursor
+        snapshot.billingShape = .weeklyPool
+        if signedIn {
+            var credits = [
+                CreditBalance(
+                    id: "cursor:other-models",
+                    name: "Other models",
+                    balance: "Prepaid",
+                    hasCredits: true,
+                    unlimited: false,
+                    detail: "Third-party models",
+                    usesPlainLabel: true
+                )
+            ]
+            if let additional {
+                credits.append(
+                    CreditBalance(
+                        id: "cursor:additional",
+                        name: "Additional usage",
+                        balance: additional,
+                        hasCredits: true,
+                        unlimited: false,
+                        detail: "Prepaid credit · does not reset weekly",
+                        usesPlainLabel: true
+                    )
+                )
+            }
+            snapshot.credits = credits
+        }
+        return snapshot
     }
 
     static func activity(now: Date = Date()) -> UsageActivity {
@@ -528,9 +761,18 @@ enum DemoUsageProvider {
 }
 
 extension Date {
+    func gaugeletWholeMinutes(from now: Date) -> Int? {
+        let interval = timeIntervalSince(now)
+        guard interval.isFinite else { return nil }
+        let minutes = max(interval, 0) / 60
+        guard minutes.isFinite else { return nil }
+        return Int(exactly: minutes.rounded(.down))
+    }
+
     func gaugeletRelativeReset(from now: Date = Date()) -> String {
-        let remaining = max(timeIntervalSince(now), 0)
-        let minutes = Int(remaining / 60)
+        guard let minutes = gaugeletWholeMinutes(from: now) else {
+            return "Reset time unavailable"
+        }
 
         if minutes < 1 { return "Resets shortly" }
         if minutes < 60 { return "Resets in \(minutes)m" }

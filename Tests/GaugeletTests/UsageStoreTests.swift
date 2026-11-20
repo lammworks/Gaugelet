@@ -105,7 +105,10 @@ final class UsageStoreTests: XCTestCase {
         store.refresh()
         await provider.waitForRequestCount(2)
         await provider.resolve(1, with: .failure("temporary failure"))
-        await waitForStoreUpdate()
+        await waitForStoreUpdate {
+            if case .stale = store.state { return true }
+            return false
+        }
 
         guard case .stale(let snapshot, let message, _) = store.state else {
             return XCTFail("Expected stale state, got \(store.state)")
@@ -233,6 +236,210 @@ final class UsageStoreTests: XCTestCase {
             return XCTFail("Explicit demo selection did not publish demo data")
         }
         XCTAssertEqual(snapshot.source, .demo)
+        guard case .demo(let cursorSnapshot) = store.cursorState else {
+            return XCTFail("Demo mode did not publish Cursor preview data")
+        }
+        XCTAssertEqual(cursorSnapshot.plan, .cursor)
+        XCTAssertEqual(cursorSnapshot.limits.first?.id, "cursor:included")
+    }
+
+    @MainActor
+    func testCursorUsageDefaultsOffAndFailureDoesNotReplaceChatGPT() async {
+        let defaults = makeDefaults()
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+
+        XCTAssertFalse(store.cursorUsageEnabled)
+        store.selectedPlan = .cursor
+        XCTAssertTrue(store.showsCursorEnable)
+
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let enabled = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        let live = makeSnapshot(id: "five-hour", remainingPercent: 73)
+        enabled.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await cursor.waitForRequestCount(1)
+        await chatgpt.resolve(0, with: .success(live))
+        await cursor.resolve(0, with: .failure("cursor down"))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(enabled.state, .live(live))
+        guard case .unavailable(let message) = enabled.cursorState else {
+            return XCTFail("Expected Cursor to stay unavailable, got \(enabled.cursorState)")
+        }
+        XCTAssertTrue(message.contains("cursor down"))
+        XCTAssertEqual(enabled.menuBarLimit?.id, "five-hour")
+    }
+
+    @MainActor
+    func testQuietRefreshDoesNotCancelAnInteractiveCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        store.selectedPlan = .cursor
+
+        store.refreshPresented()
+        await cursor.waitForRequestCount(1)
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await waitForStoreUpdate()
+
+        let quietCount = await cursor.requestCount()
+        let quietPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(quietCount, 1)
+        XCTAssertEqual(quietPrompts, [true])
+
+        await cursor.resolve(0, with: .success(makeCursorReading(note: "interactive")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
+        XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
+        let promptsAfterRead = await cursor.recordedPrompts()
+        XCTAssertEqual(promptsAfterRead, [true])
+    }
+
+    @MainActor
+    func testInteractiveRefreshSupersedesAQuietCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+
+        store.refresh()
+        await cursor.waitForRequestCount(1)
+        let quietPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(quietPrompts, [false])
+
+        store.selectedPlan = .cursor
+        store.refreshPresented()
+        await cursor.waitForRequestCount(2)
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(2)
+        await waitForStoreUpdate()
+        let supersededCount = await cursor.requestCount()
+        let supersededPrompts = await cursor.recordedPrompts()
+        XCTAssertEqual(supersededCount, 2)
+        XCTAssertEqual(supersededPrompts, [false, true])
+
+        await cursor.resolve(1, with: .success(makeCursorReading(note: "interactive")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "interactive" }
+        await cursor.resolve(0, with: .success(makeCursorReading(note: "quiet")))
+        await waitForStoreUpdate()
+        XCTAssertEqual(store.cursorState.snapshot?.note, "interactive")
+    }
+
+    @MainActor
+    func testDemoRoundTripDoesNotBlockTheNextQuietCursorRead() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        store.selectedPlan = .cursor
+
+        store.refreshPresented()
+        await cursor.waitForRequestCount(1)
+
+        store.sourcePreference = .demo
+        store.sourcePreference = .codexAppServer
+        await cursor.waitForRequestCount(2)
+        await chatgpt.waitForRequestCount(1)
+
+        let count = await cursor.requestCount()
+        let prompts = await cursor.recordedPrompts()
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(prompts, [true, false])
+
+        await cursor.resolve(1, with: .success(makeCursorReading(note: "quiet")))
+        await waitForStoreUpdate { store.cursorState.snapshot?.note == "quiet" }
+        XCTAssertEqual(store.cursorState.snapshot?.note, "quiet")
+        XCTAssertEqual(store.cursorState.snapshot?.source, .cursorPlan)
+    }
+
+    @MainActor
+    func testGrokSignInDetailStaysVisibleWithoutReplacingChatGPT() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let chatgpt = ControlledUsageProvider()
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: chatgpt, cursorProvider: cursor)
+        let live = makeSnapshot(id: "five-hour", remainingPercent: 73)
+        let detail = "Gaugelet could not use the Grok sign-in in ~/.grok/auth.json: expires_at is in the past. Keys present: https://auth.x.ai::example (expires_at, key)."
+        let signedOut = CursorPlanParser.signedOutSnapshot(
+            now: Date(timeIntervalSince1970: 1_800_000_000),
+            source: .grokPlan,
+            detail: detail
+        )
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(1)
+        await cursor.waitForRequestCount(1)
+        await chatgpt.resolve(0, with: .success(live))
+        await cursor.resolve(0, with: .success(signedOut))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(store.state, .live(live))
+        guard case .live(let cursorSnapshot) = store.cursorState else {
+            return XCTFail("Expected the Grok sign-in state to publish, got \(store.cursorState)")
+        }
+        XCTAssertFalse(cursorSnapshot.isSignedIn)
+        XCTAssertEqual(cursorSnapshot.source, .grokPlan)
+        XCTAssertTrue(cursorSnapshot.sourceDetail.contains("~/.grok/auth.json"))
+        XCTAssertTrue(cursorSnapshot.sourceDetail.contains("expires_at"))
+        XCTAssertFalse(cursorSnapshot.sourceDetail.contains("access token value"))
+
+        store.refresh()
+        await chatgpt.waitForRequestCount(2)
+        await cursor.waitForRequestCount(2)
+        await chatgpt.resolve(1, with: .success(live))
+        await cursor.resolve(1, with: .failure("Grok usage request failed (HTTP 404). Gaugelet called GET https://cli-chat-proxy.grok.com/v1/billing?format=credits."))
+        await waitForStoreUpdate()
+
+        XCTAssertEqual(store.state, .live(live))
+        guard case .unavailable(let message) = store.cursorState else {
+            return XCTFail("Expected a visible Grok failure, got \(store.cursorState)")
+        }
+        XCTAssertTrue(message.contains("HTTP 404"))
+        XCTAssertTrue(message.contains("cli-chat-proxy.grok.com/v1/billing"))
+        XCTAssertFalse(message.contains("Bearer"))
+    }
+
+    @MainActor
+    func testPinnedCursorCounterUsesTheCursorReading() async {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "cursorUsageEnabled")
+        let cursor = ControlledCursorProvider()
+        let store = UsageStore(defaults: defaults, provider: FailingUsageProvider(), cursorProvider: cursor)
+        let reading = DemoUsageProvider.cursorSnapshot(for: .comfortable)
+        var live = UsageSnapshot(
+            planName: reading.planName,
+            limits: reading.limits,
+            lastUpdated: reading.lastUpdated,
+            isSignedIn: true,
+            note: reading.note,
+            source: .cursorPlan,
+            sourceDetail: reading.sourceDetail
+        )
+        live.plan = .cursor
+        live.billingShape = .weeklyPool
+        live.credits = reading.credits
+
+        store.refresh()
+        await cursor.waitForRequestCount(1)
+        await cursor.resolve(0, with: .success(live))
+        await waitForStoreUpdate()
+
+        store.pinnedLimitID = "cursor:included"
+        XCTAssertEqual(store.menuBarLimit?.remainingPercent, 72)
+        XCTAssertEqual(store.menuBarUsageState, .live(live))
+        XCTAssertEqual(
+            GaugeletMenuBarPresentation.iconState(for: store.menuBarUsageState, pinnedID: store.pinnedLimitID).percent,
+            72
+        )
     }
 
     @MainActor
@@ -293,9 +500,12 @@ final class UsageStoreTests: XCTestCase {
     }
 
     @MainActor
-    private func waitForStoreUpdate() async {
-        for _ in 0..<20 {
+    private func waitForStoreUpdate(until ready: (@MainActor () -> Bool)? = nil) async {
+        for _ in 0..<100 {
+            let done = await MainActor.run { ready?() ?? false }
+            if done { return }
             await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 }
@@ -308,6 +518,53 @@ private enum ControlledOutcome: Sendable {
 private struct ControlledProviderError: LocalizedError, Sendable {
     let message: String
     var errorDescription: String? { message }
+}
+
+private struct FailingUsageProvider: UsageProviding {
+    func fetchSnapshot() async throws -> UsageSnapshot {
+        throw ControlledProviderError(message: "not used")
+    }
+}
+
+private actor ControlledCursorProvider: CursorPlanFetching {
+    private var continuations: [CheckedContinuation<ControlledOutcome, Never>?] = []
+    private var promptFlags: [Bool] = []
+
+    func fetchSnapshot() async throws -> UsageSnapshot {
+        let outcome = await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+        switch outcome {
+        case .success(let snapshot):
+            return snapshot
+        case .failure(let message):
+            throw ControlledProviderError(message: message)
+        }
+    }
+
+    func fetchSnapshot(allowKeychainPrompt: Bool) async throws -> UsageSnapshot {
+        promptFlags.append(allowKeychainPrompt)
+        return try await fetchSnapshot()
+    }
+
+    func requestCount() -> Int { continuations.count }
+
+    func recordedPrompts() -> [Bool] { promptFlags }
+
+    func waitForRequestCount(_ expectedCount: Int) async {
+        while continuations.count < expectedCount {
+            await Task.yield()
+        }
+    }
+
+    func resolve(_ index: Int, with outcome: ControlledOutcome) {
+        guard continuations.indices.contains(index), let continuation = continuations[index] else {
+            XCTFail("No pending Cursor request at index \(index)")
+            return
+        }
+        continuations[index] = nil
+        continuation.resume(returning: outcome)
+    }
 }
 
 private actor ControlledUsageProvider: UsageProviding {
@@ -342,6 +599,27 @@ private actor ControlledUsageProvider: UsageProviding {
     }
 }
 
+private func makeCursorReading(note: String) -> UsageSnapshot {
+    var snapshot = UsageSnapshot(
+        planName: "X Subscription",
+        limits: [
+            UsageLimit(
+                id: "cursor:included",
+                name: "Included usage",
+                remainingPercent: 40,
+                resetDate: nil
+            )
+        ],
+        lastUpdated: Date(timeIntervalSince1970: 1_800_000_000),
+        isSignedIn: true,
+        note: note,
+        source: .cursorPlan,
+        sourceDetail: note
+    )
+    snapshot.plan = .cursor
+    return snapshot
+}
+
 private func makeSnapshot(id: String, remainingPercent: Int) -> UsageSnapshot {
     UsageSnapshot(
         planName: "ChatGPT Plus",
@@ -357,6 +635,7 @@ private func makeSnapshot(id: String, remainingPercent: Int) -> UsageSnapshot {
         isSignedIn: true,
         note: "",
         source: .codexAppServer,
-        sourceDetail: "Live test data"
+        sourceDetail: "Live test data",
+        accountID: "account-a"
     )
 }

@@ -61,6 +61,15 @@ private extension EnvironmentValues {
     }
 }
 
+enum GaugeletPopoverMetrics {
+    static let width: CGFloat = 336
+
+    static var maxHeight: CGFloat {
+        let visible = NSScreen.main?.visibleFrame.height ?? 900
+        return max(420, visible - 28)
+    }
+}
+
 struct UsagePopoverRoot: View {
     @ObservedObject var store: UsageStore
     let onHoverChanged: (Bool) -> Void
@@ -95,28 +104,15 @@ struct UsagePopoverRoot: View {
             }
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-
-                Divider()
-                    .opacity(0.35)
-
-                Group {
-                    if showingSettings {
-                        SettingsView(
-                            store: store,
-                            onCheckForUpdates: onCheckForUpdates
-                        )
-                            .transition(.opacity)
-                    } else {
-                        UsageDashboard(store: store)
-                            .transition(.opacity)
-                    }
+            ViewThatFits(in: .vertical) {
+                popoverColumn
+                ScrollView(.vertical) {
+                    popoverColumn
                 }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showingSettings)
             }
         }
-        .frame(width: 336, height: 466)
+        .frame(width: GaugeletPopoverMetrics.width)
+        .frame(maxHeight: GaugeletPopoverMetrics.maxHeight, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .environment(\.gaugeletAccent, accent)
         .tint(accent)
@@ -127,15 +123,40 @@ struct UsagePopoverRoot: View {
         GaugeletPalette.accent(for: store.iconStyle)
     }
 
+    private var popoverColumn: some View {
+        VStack(spacing: 0) {
+            header
+
+            Divider()
+                .opacity(0.35)
+
+            Group {
+                if showingSettings {
+                    SettingsView(
+                        store: store,
+                        onCheckForUpdates: onCheckForUpdates
+                    )
+                    .transition(.opacity)
+                } else {
+                    UsageDashboard(store: store)
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showingSettings)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     private var header: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
             GaugeletIconView(style: store.iconStyle, size: 32)
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Gaugelet")
                     .font(.system(size: 14, weight: .semibold))
-                Text("ChatGPT plan usage")
+                Text(store.selectedPlan.subtitle)
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -143,14 +164,14 @@ struct UsagePopoverRoot: View {
 
             Spacer(minLength: 8)
 
-            Text(store.state.badgeTitle)
+            Text(headerBadge)
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(badgeColor)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
                 .background(badgeColor.opacity(0.12), in: Capsule())
-                .accessibilityLabel(store.state.badgeTitle.lowercased())
+                .accessibilityLabel(headerBadge.lowercased())
 
             Button {
                 showingSettings.toggle()
@@ -165,19 +186,36 @@ struct UsagePopoverRoot: View {
             .accessibilityLabel(showingSettings ? "Close settings" : "Open settings")
         }
         .padding(.horizontal, 16)
-        .frame(height: 54)
+        .padding(.top, 10)
+
+        Picker("Plan", selection: $store.selectedPlan) {
+            ForEach(UsagePlan.allCases) { plan in
+                Text(plan.title).tag(plan)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+            .accessibilityLabel("Usage plan")
+        }
+    }
+
+    private var headerBadge: String {
+        store.showsCursorEnable ? "OFF" : store.presentedState.badgeTitle
     }
 
     private var badgeColor: Color {
-        switch store.state {
+        if store.showsCursorEnable { return .secondary }
+        switch store.presentedState {
         case .stale, .unavailable:
-            GaugeletPalette.coral
+            return GaugeletPalette.coral
         case .loading:
-            .secondary
-        case .live:
-            accent
+            return .secondary
+        case .live(let snapshot):
+            return snapshot.isSignedIn ? accent : .secondary
         case .demo:
-            GaugeletPalette.copper
+            return GaugeletPalette.copper
         }
     }
 }
@@ -261,33 +299,37 @@ private struct UsageDashboard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            switch store.state {
-            case .loading:
-                connectionStatusContent(
-                    title: "Connecting to Codex",
-                    message: store.state.sourceDetail,
-                    symbol: "arrow.triangle.2.circlepath",
-                    showsProgress: true,
-                    offersRetry: false
-                )
+            if store.showsCursorEnable {
+                cursorEnableContent
+            } else {
+                switch store.presentedState {
+                case .loading:
+                    connectionStatusContent(
+                        title: store.selectedPlan == .cursor ? "Connecting to Cursor" : "Connecting to Codex",
+                        message: store.presentedState.detail(for: store.selectedPlan),
+                        symbol: "arrow.triangle.2.circlepath",
+                        showsProgress: true,
+                        offersRetry: false
+                    )
 
-            case .unavailable(let errorMessage):
-                connectionStatusContent(
-                    title: "Live usage unavailable",
-                    message: errorMessage,
-                    symbol: "exclamationmark.triangle",
-                    showsProgress: false,
-                    offersRetry: true
-                )
+                case .unavailable(let errorMessage):
+                    connectionStatusContent(
+                        title: unavailableTitle(message: errorMessage),
+                        message: errorMessage,
+                        symbol: "exclamationmark.triangle",
+                        showsProgress: false,
+                        offersRetry: true
+                    )
 
-            case .live(let snapshot), .demo(let snapshot), .stale(let snapshot, _, _):
-                if snapshot.isSignedIn {
-                    TimelineView(.periodic(from: .now, by: 30)) { context in
-                        dashboardContent(snapshot: snapshot, now: context.date)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                case .live(let snapshot), .demo(let snapshot), .stale(let snapshot, _, _):
+                    if snapshot.isSignedIn {
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            dashboardContent(snapshot: snapshot, now: context.date)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
+                    } else {
+                        signedOutContent(snapshot: snapshot)
                     }
-                } else {
-                    signedOutContent(snapshot: snapshot)
                 }
             }
         }
@@ -306,21 +348,26 @@ private struct UsageDashboard: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if store.isRefreshing {
+                if store.presentedIsRefreshing {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button { store.refresh() } label: {
+                    Button { store.refreshPresented() } label: {
                         Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Refresh usage")
                 }
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                     if snapshot.orderedLimits.isEmpty {
                         Text("Allowance windows unavailable")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    if let panel = snapshot.grokPanel {
+                        grokPanel(panel)
+                    }
+                    if !snapshot.grokProductShares.isEmpty {
+                        grokPoolShares(snapshot)
                     }
                     VStack(spacing: 0) {
                         ForEach(snapshot.orderedLimits) { limit in
@@ -357,35 +404,42 @@ private struct UsageDashboard: View {
                     }
 
                     VStack(alignment: .leading, spacing: 5) {
-                        HStack {
-                            Label("Resets", systemImage: "arrow.counterclockwise")
-                            Spacer()
-                            Text(snapshot.resetCredits.map { "\($0.availableCount) available" } ?? "Unavailable")
-                                .monospacedDigit()
-                        }
-                        if let expiry = snapshot.resetCredits?.earliestKnownExpiry {
-                            Text("Next known expiry \(expiry.formatted(date: .abbreviated, time: .omitted))")
-                                .font(.system(size: 10)).foregroundStyle(.secondary)
-                        }
-                        ForEach(snapshot.credits) { credit in
+                        if snapshot.plan != .cursor || snapshot.resetCredits != nil {
                             HStack {
-                                Text("\(credit.name) credits").lineLimit(1)
+                                Label("Resets", systemImage: "arrow.counterclockwise")
                                 Spacer()
-                                Text(credit.displayValue).monospacedDigit()
+                                Text(snapshot.resetCredits.map { "\($0.availableCount) available" } ?? "Unavailable")
+                                    .monospacedDigit()
+                            }
+                            if let expiry = snapshot.resetCredits?.earliestKnownExpiry {
+                                Text("Next known expiry \(expiry.formatted(date: .abbreviated, time: .omitted))")
+                                    .font(.system(size: 10)).foregroundStyle(.secondary)
                             }
                         }
-                        Button("Manage usage") { store.open(.usage) }.buttonStyle(.link)
+                        ForEach(snapshot.credits) { credit in
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack {
+                                    Text(credit.label).lineLimit(1)
+                                    Spacer()
+                                    Text(credit.displayValue).monospacedDigit()
+                                }
+                                if let detail = credit.detail {
+                                    Text(detail)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Button("Manage usage") { store.openManageUsage(for: snapshot) }.buttonStyle(.link)
                     }
                     .font(.system(size: 11))
                     .padding(.horizontal, 2)
 
-                    if store.activityEnabled {
+                    if store.activityEnabled && snapshot.plan == .chatgpt {
                         Divider().opacity(0.4)
                         activityContent
                     }
                 }
-            }
-            .scrollIndicators(.visible)
             stateNotice
             footer(snapshot: snapshot)
         }
@@ -474,21 +528,21 @@ private struct UsageDashboard: View {
                 .lineSpacing(2)
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
-                .lineLimit(6)
+                .lineLimit(8)
 
             if offersRetry {
                 HStack(spacing: 8) {
-                    Button {
-                        store.refresh()
-                    } label: {
+            Button {
+                store.refreshPresented()
+            } label: {
                         Text("Retry")
                             .foregroundStyle(GaugeletPalette.prominentButtonLabel)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(accent)
 
-                    Button("Codex setup") {
-                        store.open(.codexSetup)
+                    Button(store.selectedPlan == .cursor ? "Cursor dashboard" : "Codex setup") {
+                        store.open(store.selectedPlan == .cursor ? .cursorDashboard : .codexSetup)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -499,8 +553,12 @@ private struct UsageDashboard: View {
             Spacer()
 
             Text(offersRetry
-                ? "Install the Codex CLI and sign in, then retry. Demo remains optional in Settings."
-                : "No usage value is shown until Codex responds.")
+                ? (store.selectedPlan == .cursor
+                    ? "Open Cursor and sign in, then retry. Demo remains optional in Settings."
+                    : "Install the Codex CLI and sign in, then retry. Demo remains optional in Settings.")
+                : (store.selectedPlan == .cursor
+                    ? "No usage value is shown until Cursor responds."
+                    : "No usage value is shown until Codex responds."))
                 .font(.system(size: 10.5))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -521,23 +579,36 @@ private struct UsageDashboard: View {
             .frame(width: 52, height: 52)
             .accessibilityHidden(true)
 
-            Text(snapshot.source == .demo ? "Signed-out demo" : "Codex is not connected")
+            Text(snapshot.signedOutHeading)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.top, 14)
 
-            Text(snapshot.source == .demo
-                ? "This preview contains demo data only. No account information is being read."
-                : "Sign in to Codex, then refresh Gaugelet to read live usage.")
+            Text(snapshot.signedOutGuidance)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.top, 6)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(8)
 
-            if snapshot.source != .demo {
-                Button("Codex setup guide") {
-                    store.open(.codexSetup)
+            if let panel = snapshot.grokPanel, case .login(let reason, let pathLabel) = panel {
+                if snapshot.source == .cursorPlan {
+                    Button("Open Cursor") {
+                        store.open(.cursorDashboard)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .controlSize(.regular)
+                    .padding(.top, 16)
+                }
+                grokLoginCard(reason: reason, pathLabel: pathLabel)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 12)
+            } else if snapshot.source != .demo {
+                Button(signedOutButtonTitle(for: snapshot)) {
+                    store.open(signedOutLink(for: snapshot))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(accent)
@@ -551,9 +622,60 @@ private struct UsageDashboard: View {
         }
     }
 
+    private var cursorEnableContent: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(accent.opacity(0.13))
+                Image(systemName: "gauge.with.dots.needle.33percent")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(accent)
+            }
+            .frame(width: 52, height: 52)
+            .accessibilityHidden(true)
+
+            Text("Cursor plan usage is off")
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.top, 14)
+
+            Text("Gaugelet can read the Cursor plan from the Cursor sign-in on this Mac, and Grok credits from the local Grok sign-in. It uses those tokens for the usage request and does not save them.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+
+            Button("Enable Cursor usage") {
+                store.cursorUsageEnabled = true
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(accent)
+            .controlSize(.regular)
+            .padding(.top, 16)
+            Spacer()
+        }
+    }
+
+    private func unavailableTitle(message: String) -> String {
+        guard store.selectedPlan == .cursor else { return "Live usage unavailable" }
+        return message.localizedCaseInsensitiveContains("grok") ? "Grok usage unavailable" : "Cursor usage unavailable"
+    }
+
+    private func signedOutButtonTitle(for snapshot: UsageSnapshot) -> String {
+        if snapshot.source == .grokPlan { return "Open Grok usage" }
+        return snapshot.plan == .cursor ? "Open Cursor" : "Codex setup guide"
+    }
+
+    private func signedOutLink(for snapshot: UsageSnapshot) -> GaugeletLink {
+        if snapshot.source == .grokPlan { return .grokDashboard }
+        return snapshot.plan == .cursor ? .cursorDashboard : .codexSetup
+    }
+
     @ViewBuilder
     private var stateNotice: some View {
-        switch store.state {
+        switch store.presentedState {
         case .stale:
             compactNotice(
                 title: "Showing the last live update",
@@ -579,22 +701,140 @@ private struct UsageDashboard: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
             .background(color.opacity(0.075), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .accessibilityHint(store.state.sourceDetail)
+            .accessibilityHint(store.presentedState.detail(for: store.selectedPlan))
+    }
+
+    @ViewBuilder
+    private func grokPanel(_ panel: GrokPanel) -> some View {
+        switch panel {
+        case .login(let reason, let pathLabel):
+            grokLoginCard(reason: reason, pathLabel: pathLabel)
+        case .status(let message):
+            Text(message)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func grokLoginCard(reason: String, pathLabel: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Run this in Terminal")
+                .font(.system(size: 11, weight: .semibold))
+            Text(reason)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(GrokPanel.command)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+            Text("Gaugelet reads \(pathLabel) afterward. It does not refresh tokens.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Copy command") { copyGrokLoginCommand() }
+                Button("Open Terminal") { openTerminal() }
+                Button("Retry") { store.refreshPresented() }
+            }
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func grokPoolShares(_ snapshot: UsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("GROK BUILD AND GROK")
+                .font(.system(size: 9.5, weight: .semibold))
+                .tracking(0.5)
+            Text("Grok Build is the grok coding CLI. It uses this same weekly plan. It is not a separate allowance, and it is not the Cursor app meter.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            PoolShareBar(shares: snapshot.grokProductShares)
+                .frame(height: 8)
+            ForEach(snapshot.grokProductShares) { share in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(share.name)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
+                        Text(share.detail)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Text("\(share.usedPercent)% of plan")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func copyGrokLoginCommand() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(GrokPanel.command, forType: .string)
+    }
+
+    private func openTerminal() {
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        NSWorkspace.shared.open(terminal)
     }
 
     private func footer(snapshot: UsageSnapshot) -> some View {
         HStack(spacing: 4) {
-            Text(store.state.badgeTitle == "STALE" ? "Last live check" : "Checked")
+            Text(store.presentedState.badgeTitle == "STALE" ? "Last live check" : "Checked")
             Text(snapshot.lastUpdated, style: .relative)
             Text("ago")
             Spacer()
             Label("Read-only", systemImage: "lock")
-                .help("ChatGPT Work and Codex allowance. Five-minute background refresh; refreshes on wake, open, and reset.")
+                .help(snapshot.plan == .cursor
+                    ? "Grok and Cursor plan usage. Five-minute background refresh. Gaugelet does not buy credits or change the plan."
+                    : "ChatGPT Work and Codex allowance. Five-minute background refresh; refreshes on wake, open, and reset.")
         }
         .font(.system(size: 10))
         .foregroundStyle(.secondary)
     }
 
+}
+
+private struct PoolShareBar: View {
+    let shares: [GrokProductShare]
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 1) {
+                ForEach(Array(shares.enumerated()), id: \.element.id) { index, share in
+                    Rectangle()
+                        .fill(color(index))
+                        .frame(width: max(proxy.size.width * CGFloat(share.usedPercent) / 100, share.usedPercent > 0 ? 2 : 0))
+                }
+                Spacer(minLength: 0)
+            }
+            .background(Color.primary.opacity(0.08))
+        }
+        .clipShape(Capsule())
+        .accessibilityLabel("Weekly plan shares")
+    }
+
+    private func color(_ index: Int) -> Color {
+        let colors: [Color] = [
+            GaugeletPalette.copper,
+            GaugeletPalette.coral,
+            Color.blue.opacity(0.75),
+            Color.teal.opacity(0.8),
+            Color.purple.opacity(0.7),
+            Color.orange.opacity(0.8)
+        ]
+        return colors[index % colors.count]
+    }
 }
 
 private struct AllowanceRow: View {
@@ -626,14 +866,18 @@ private struct AllowanceRow: View {
                 fraction: limit.remainingFraction,
                 tone: limit.tone(warningThreshold: warningThreshold)
             )
-            .frame(height: 5)
+            .frame(height: 4)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 4)
+        .help(limit.contextNote ?? limit.blockedReason ?? limit.name)
         .accessibilityElement(children: .combine)
     }
 
     private var limitRowDetail: String {
-        [limit.blockedReason, limit.resetDescription(from: now)]
+        if limit.id == "cursor:session", let blockedReason = limit.blockedReason {
+            return blockedReason
+        }
+        return [limit.contextNote, limit.blockedReason, limit.resetDescription(from: now)]
             .compactMap { $0 }
             .joined(separator: " · ")
     }
@@ -683,8 +927,7 @@ private struct SettingsView: View {
     @Environment(\.gaugeletAccent) private var accent
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
                 Text("Settings")
                     .font(.system(size: 17, weight: .semibold))
 
@@ -719,10 +962,11 @@ private struct SettingsView: View {
                 settingsGroup("MENU-BAR COUNTER") {
                     Picker("Counter", selection: $store.pinnedLimitID) {
                         Text("Default").tag("")
-                        ForEach(store.snapshot?.orderedLimits ?? []) { limit in
-                            Text(limit.compactName).tag(limit.id)
+                        ForEach(store.menuBarChoices) { limit in
+                            Text(limit.id.hasPrefix("cursor:") ? "Cursor · \(limit.compactName)" : limit.compactName)
+                                .tag(limit.id)
                         }
-                    if !store.pinnedLimitID.isEmpty && store.menuBarLimit == nil {
+                        if !store.pinnedLimitID.isEmpty && store.menuBarLimit == nil {
                             Text("Pinned counter unavailable").tag(store.pinnedLimitID)
                         }
                     }.labelsHidden()
@@ -752,7 +996,15 @@ private struct SettingsView: View {
 
                     Text(store.sourcePreference == .demo
                         ? "Preview Gaugelet without reading an account."
-                        : "Gaugelet reads plan limits from Codex on this Mac. Authentication stays with Codex.")
+                        : "Gaugelet reads ChatGPT plan limits from Codex on this Mac. Authentication stays with Codex.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                settingsGroup("CURSOR PLAN") {
+                    Toggle("Read Cursor usage", isOn: $store.cursorUsageEnabled)
+                    Text("When this is on, Gaugelet reads the local Cursor access token and the Grok sign-in in ~/.grok/auth.json when that file has one. Each token stays in memory for its usage request and is not saved.")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -856,7 +1108,7 @@ private struct SettingsView: View {
                     Label("Private by design", systemImage: "lock.shield")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(accent)
-                    Text("Codex owns authentication. Gaugelet stores no credentials, analytics, or usage history.")
+                    Text("Codex owns its authentication. Cursor usage is off until you enable it, and that token is not stored. Gaugelet stores no analytics or usage history.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -870,7 +1122,7 @@ private struct SettingsView: View {
                 }
 
                 HStack {
-                    Text("Unofficial · Not affiliated with OpenAI")
+                    Text("Unofficial · Not affiliated with OpenAI, Cursor, or xAI")
                         .font(.system(size: 9.5))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -882,7 +1134,6 @@ private struct SettingsView: View {
                 }
             }
             .padding(16)
-        }
         .font(.system(size: 11.5))
         .onAppear {
             launchAtLogin.refresh()
@@ -994,7 +1245,7 @@ private struct SettingsView: View {
 
 extension Date {
     func gaugeletCountdownValue(from now: Date = Date()) -> String {
-        let minutes = max(Int(timeIntervalSince(now) / 60), 0)
+        guard let minutes = gaugeletWholeMinutes(from: now) else { return "—" }
         if minutes < 60 { return "\(max(minutes, 1))m" }
 
         let hours = minutes / 60

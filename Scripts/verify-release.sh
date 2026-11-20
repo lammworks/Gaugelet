@@ -89,8 +89,8 @@ PACKAGED_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${APP_
 "${SCRIPT_DIR}/verify-sparkle-key-gates.sh" --configuration-only --plist "${APP_INFO}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_INFO}")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_INFO}")"
-[[ "${VERSION}" == "1.1.1" && "${BUILD}" == "4" ]] \
-    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.1.1 (4)"
+[[ "${VERSION}" == "1.2.0-beta.1" && "${BUILD}" == "5" ]] \
+    || fail "release bundle is ${VERSION} (${BUILD}), expected 1.2.0-beta.1 (5)"
 [[ "$(/usr/bin/lipo -archs "${EXECUTABLE}")" == "arm64" ]] \
     || fail "Gaugelet main executable must contain only arm64"
 RPATHS="$(/usr/bin/otool -l "${EXECUTABLE}" \

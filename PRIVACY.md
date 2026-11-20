@@ -1,15 +1,16 @@
 # Gaugelet privacy notice
 
-Last updated: September 11, 2026
+Last updated: November 15, 2026
 
 ## Summary
 
 Gaugelet is a local-first menu-bar app. It has no Gaugelet account, advertising, analytics, telemetry, crash-reporting service, usage-history upload, or LammWorks backend.
 
-Gaugelet communicates with two external boundaries:
+Gaugelet communicates with these external boundaries:
 
 1. The separately installed Codex CLI may contact OpenAI when Gaugelet asks its local App Server for allowance, reset/credit details, or optional token activity.
-2. Sparkle may contact GitHub to check for and download Gaugelet updates.
+2. If you enable Cursor plan usage, Gaugelet reads the local Cursor access token and, when present, the local Grok sign-in, and sends a read-only usage request to Cursor or xAI.
+3. Sparkle may contact GitHub to check for and download Gaugelet updates.
 
 Gaugelet does not sell personal information.
 
@@ -40,6 +41,31 @@ The Codex CLI owns authentication. Gaugelet does not read or copy browser cookie
 
 The Codex CLI may use its existing session to communicate with OpenAI. OpenAI and the Codex CLI process data under their own terms and privacy notices; Gaugelet cannot control that separate relationship. Gaugelet does not proxy Codex traffic through LammWorks.
 
+## Cursor and Grok plan usage
+
+Cursor plan usage is off until you turn it on in the Cursor tab or in Settings. Enabling it is a separate choice from the Codex reading.
+
+When it is on, Gaugelet opens Cursor’s local state database read-only and reads only the key `cursorAuth/accessToken` from `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (ItemTable, then `cursorDiskKV`). If that file has no token, it checks the same file for Cursor Nightly and Cursor Insiders. It does not read chat transcripts, composer sessions, prompts, project files, or the local tracking database.
+
+Current Cursor builds seal that value. Gaugelet reads one Keychain generic password for the app that stored the database, only to unseal the token in memory. Cursor uses service `Cursor Safe Storage` and account `Cursor Key` (or the older account `Cursor`). Cursor Nightly and Cursor Insiders use the same shape with their own app name. A background refresh does not show a Keychain prompt. Turning Cursor usage on, or refreshing the Cursor tab, can show the login-keychain Allow dialog. The password and the token are not logged, stored, or shown in the interface. A plaintext token in the same database key is still accepted.
+
+The token is held in memory for that one request and is not written to preferences, logs, or a Gaugelet file. A signed-in reading also keeps an in-memory session identifier: the account subject when the sign-in is a JSON Web Token, otherwise a short hash of the token. Gaugelet uses that identifier only so an allowance alert is not raised by switching Cursor or Grok accounts. It is not the access token, and it is not written to preferences, logs, or a file. A reading with no session identifier is not compared with another reading. Gaugelet does not refresh the token and does not write to Cursor’s database. If no token is stored, the sealed token cannot be unsealed, Cursor rejects the request, or the request times out, Gaugelet says which of those happened and asks you to open the Cursor desktop app. It does not show the token or the Keychain password.
+
+The request is one of:
+
+- `POST https://cursor.com/api/dashboard/get-current-period-usage`
+- `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage` when the first call cannot be completed
+
+The response is used for the included percent, a distinct Auto or API percent on older plans, the cycle end, an on-demand cap when one is returned, and a prepaid balance when an amount is returned. Missing amounts stay blank.
+
+Grok credits are read separately from the Cursor plan. Gaugelet reads one bearer from `$GROK_HOME/auth.json` when `GROK_HOME` is set, otherwise from `~/.grok/auth.json`. The current Grok CLI stores that bearer as `key` under an `https://auth.x.ai` entry, with `expires_at` and a `refresh_token` that Gaugelet does not use. A top-level `access_token` is still accepted. Gaugelet does not read the macOS keychain for Grok, does not refresh the token, and does not send an `xai::api_key` value.
+
+When the sign-in is usable, Gaugelet sends that bearer only to `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, with the header `X-XAI-Token-Auth: xai-grok-cli`. If the same entry includes `user_id`, that identifier is sent as `x-userid` on this request and is not stored. The Cursor rows and the Grok rows are shown together when both sign-ins exist. They are not added into one percent. The token and `user_id` are held in memory for that request and are not written to preferences, logs, or a Gaugelet file.
+
+**Manage usage** opens `https://grok.com/dashboard` for a weekly pool and Cursor’s spending dashboard for an older plan. Gaugelet does not buy credit, change plans, or redeem anything.
+
+Cursor and xAI process these requests under their own terms. Gaugelet does not proxy that traffic through LammWorks.
+
 ## Update checks
 
 Gaugelet includes Sparkle 2.9.6. If you accept automatic update checks, Sparkle normally requests this GitHub-hosted appcast about once every 24 hours. A manual **Check for Updates** request uses the same channel:
@@ -61,7 +87,8 @@ Gaugelet stores preferences with the standard macOS preferences system, includin
 - Pinned menu-bar counter identifier and token-activity preference.
 - Launch-at-login intent and status-related state.
 - Selected icon theme.
-- Selected source mode and demo scenario.
+- Selected source mode, demo scenario, and whether Cursor plan usage is enabled.
+- Selected usage plan in the menu-bar popover.
 - Sparkle update-check preference, managed by Sparkle.
 
 Live percentages, account identifiers, credit/reset details, and token activity remain in process memory. A last successful reading may remain in memory briefly enough to be shown as explicitly stale after a refresh failure. Gaugelet does not maintain a persistent usage-history database.
@@ -84,7 +111,7 @@ Removing Gaugelet deletes the app but may leave its macOS preferences. To remove
 defaults delete com.lammworks.gaugelet
 ```
 
-This affects Gaugelet preferences only. It does not modify Codex CLI credentials or OpenAI account data. Use Codex or OpenAI controls for those separate systems.
+This affects Gaugelet preferences only. It does not modify Codex, Cursor, or Grok credentials or account data. Use those products’ own controls for their separate systems.
 
 ## Information you choose to share
 
@@ -96,6 +123,6 @@ Use [GitHub Issues](https://github.com/lammworks/Gaugelet/issues/new/choose) for
 
 This notice must be reviewed before Gaugelet adds analytics, crash reporting, persistent usage history, another data provider, account functionality, a LammWorks service, or materially different update behavior. Material changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
-Gaugelet is independent software and is not affiliated with, endorsed by, or sponsored by OpenAI.
+Gaugelet is independent software and is not affiliated with, endorsed by, or sponsored by OpenAI, Cursor, or xAI.
 
 Built by LammWorks.
