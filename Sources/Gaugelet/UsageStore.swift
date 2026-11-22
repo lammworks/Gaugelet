@@ -223,7 +223,7 @@ final class UsageStore: ObservableObject {
         refresh()
     }
 
-    func refreshIfDue() {
+    func refreshIfDue(minimumInterval: TimeInterval = 5 * 60) {
         guard !isRefreshing, sourcePreference == .codexAppServer else { return }
         let current = now()
         let lastAttempt = lastRefreshAttempt ?? .distantPast
@@ -231,7 +231,8 @@ final class UsageStore: ObservableObject {
             guard let reset = $0.resetDate else { return false }
             return reset > lastAttempt && reset <= current
         } ?? false
-        if resetDue || current.timeIntervalSince(lastAttempt) >= 5 * 60 { refresh() }
+        let interval = max(minimumInterval, 60)
+        if resetDue || current.timeIntervalSince(lastAttempt) >= interval { refresh() }
     }
 
     func refresh() {

@@ -153,18 +153,23 @@ final class AllowanceUpgradeTests: XCTestCase {
         try await settled(store)
         var count = await provider.calls
         XCTAssertEqual(count, 1)
-        time.addTimeInterval(30)
+        time.addTimeInterval(4 * 60)
         store.refreshIfDue()
         count = await provider.calls
         XCTAssertEqual(count, 1)
-        time.addTimeInterval(31)
+        time.addTimeInterval(60)
         store.refreshIfDue()
         try await settled(store)
         count = await provider.calls
         XCTAssertEqual(count, 2)
-        store.refreshIfDue()
+        store.refreshIfDue(minimumInterval: 10 * 60)
         count = await provider.calls
         XCTAssertEqual(count, 2)
+        time.addTimeInterval(10 * 60)
+        store.refreshIfDue(minimumInterval: 10 * 60)
+        try await settled(store)
+        count = await provider.calls
+        XCTAssertEqual(count, 3)
         store.cancelRefresh()
     }
 

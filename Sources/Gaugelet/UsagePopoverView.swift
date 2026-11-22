@@ -796,8 +796,8 @@ private struct UsageDashboard: View {
             Spacer()
             Label("Read-only", systemImage: "lock")
                 .help(snapshot.plan == .cursor
-                    ? "Grok and Cursor plan usage. Five-minute background refresh. Gaugelet does not buy credits or change the plan."
-                    : "ChatGPT Work and Codex allowance. Five-minute background refresh; refreshes on wake, open, and reset.")
+                    ? "Grok and Cursor plan usage. Background refresh adapts to power; Gaugelet does not buy credits or change the plan."
+                    : "ChatGPT Work and Codex allowance. Background refresh adapts to power; refreshes on wake, open, and reset.")
         }
         .font(.system(size: 10))
         .foregroundStyle(.secondary)
