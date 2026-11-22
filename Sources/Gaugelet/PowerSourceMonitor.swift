@@ -36,7 +36,7 @@ final class PowerSourceMonitor: @unchecked Sendable {
         }
 
         lowPowerObserver = NotificationCenter.default.addObserver(
-            forName: ProcessInfo.didChangePowerStateNotification,
+            forName: .NSProcessInfoPowerStateDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
