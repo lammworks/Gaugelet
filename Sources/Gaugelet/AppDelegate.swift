@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusAppearanceObservation: NSKeyValueObservation?
     private var qaWindow: NSWindow?
     private var isPinned = false
+    private let powerSourceMonitor = PowerSourceMonitor()
+    private var energyPolicy: GaugeletEnergyPolicy = .default
+    private var appliedStatusPresentation: StatusItemPresentation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         qaLog("applicationDidFinishLaunching")
@@ -41,13 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         updateStatusItem()
         store.refresh()
-        refreshTimer = Timer.scheduledTimer(
-            timeInterval: 30,
-            target: self,
-            selector: #selector(refreshUsage),
-            userInfo: nil,
-            repeats: true
-        )
+        powerSourceMonitor.start { [weak self] policy in
+            self?.applyEnergyPolicy(policy)
+        }
 
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
 
@@ -62,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openWorkItem?.cancel()
         closeWorkItem?.cancel()
         refreshTimer?.invalidate()
+        powerSourceMonitor.stop()
         statusAppearanceObservation?.invalidate()
         store.cancelRefresh()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
@@ -130,27 +130,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let isDark = isStatusBarDark(button)
         let state = store.menuBarUsageState
         let iconState = GaugeletMenuBarPresentation.iconState(for: state, pinnedID: store.pinnedLimitID)
-        button.image = GaugeletAppIcon.menuBarImage(
-            for: store.iconStyle,
-            mode: iconState.mode,
-            percent: iconState.percent,
-            isDark: isDark
-        )
-
-        let title = GaugeletMenuBarStatus.title(
+        let titleBody = GaugeletMenuBarStatus.title(
             chatgpt: store.state,
             cursor: store.cursorState,
             cursorEnabled: store.cursorUsageEnabled,
             showPercentage: store.showPercentageInMenuBar
         )
-        button.title = title.isEmpty ? "" : "  \(title)"
+        let title = titleBody.isEmpty ? "" : "  \(titleBody)"
         let tip = GaugeletMenuBarStatus.toolTip(
             chatgpt: store.state,
             cursor: store.cursorState,
             cursorEnabled: store.cursorUsageEnabled
         )
-        button.toolTip = tip
-        button.setAccessibilityLabel(tip)
+        let presentation = StatusItemPresentation(
+            title: title,
+            toolTip: tip,
+            iconMode: iconState.mode,
+            percent: iconState.percent,
+            isDark: isDark,
+            iconStyle: store.iconStyle
+        )
+        // Assigning title/image every tick forces NSStatusItem replicant redraws.
+        guard appliedStatusPresentation != presentation else { return }
+        appliedStatusPresentation = presentation
+
+        button.image = GaugeletAppIcon.menuBarImage(
+            for: presentation.iconStyle,
+            mode: presentation.iconMode,
+            percent: presentation.percent,
+            isDark: presentation.isDark
+        )
+        button.title = presentation.title
+        button.toolTip = presentation.toolTip
+        button.setAccessibilityLabel(presentation.toolTip)
+    }
+
+    private func applyEnergyPolicy(_ policy: GaugeletEnergyPolicy) {
+        let shouldReschedule = refreshTimer == nil
+            || policy.timerInterval != energyPolicy.timerInterval
+            || policy.timerTolerance != energyPolicy.timerTolerance
+        energyPolicy = policy
+        if shouldReschedule {
+            scheduleRefreshTimer()
+        }
+        qaLog(
+            "energy policy \(policy.mode.rawValue) timer=\(Int(policy.timerInterval))s refresh=\(Int(policy.backgroundRefreshInterval))s batteryInstalled=\(policy.hasInternalBattery)"
+        )
+    }
+
+    private func scheduleRefreshTimer() {
+        refreshTimer?.invalidate()
+        let timer = Timer(
+            timeInterval: energyPolicy.timerInterval,
+            target: self,
+            selector: #selector(refreshUsage),
+            userInfo: nil,
+            repeats: true
+        )
+        timer.tolerance = energyPolicy.timerTolerance
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
     }
 
     private func notificationPreferenceChanged(_ enabled: Bool) {
@@ -194,11 +233,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func refreshUsage() {
-        store.refreshIfDue()
-        updateStatusItem()
+        // Provider publish paths already call updateStatusItem via onStatusPresentationChange.
+        // Do not touch the status item here when readings are unchanged.
+        store.refreshIfDue(minimumInterval: energyPolicy.backgroundRefreshInterval)
     }
 
     @objc private func didWake() {
+        applyEnergyPolicy(PowerSourceMonitor.currentPolicy())
         store.refreshIfNeeded(maximumAge: 0)
     }
 
@@ -322,6 +363,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard ProcessInfo.processInfo.environment["GAUGELET_OPEN_ON_LAUNCH"] == "1" else { return }
         FileHandle.standardError.write(Data("Gaugelet QA: \(message)\n".utf8))
     }
+}
+
+private struct StatusItemPresentation: Equatable {
+    var title: String
+    var toolTip: String
+    var iconMode: GaugeletMenuBarIconMode
+    var percent: Int?
+    var isDark: Bool
+    var iconStyle: GaugeletIconStyle
 }
 
 private final class StatusHoverResponder: NSResponder {
